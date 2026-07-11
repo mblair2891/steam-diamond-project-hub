@@ -1,17 +1,18 @@
 'use client';
 
+import Link from 'next/link';
 import { UserProfile } from '@clerk/nextjs';
 import { useRole } from '@/hooks/useRole';
 
 export default function ProfilePage() {
-  const { displayName, phone, email, role, canEdit, user } = useRole();
+  const { displayName, phone, email, role, roleLabel, canEdit, canManageUsers, user } = useRole();
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <h2 className="section-title">Profile & Settings</h2>
         <p className="ml-3 mt-1 text-sm text-ink-muted">
-          Update your info and security settings. Roles are managed in Clerk.
+          Update your info and security settings. Roles are managed in Clerk metadata.
         </p>
       </div>
 
@@ -33,9 +34,13 @@ export default function ProfilePage() {
             <div className="truncate text-lg font-bold">{displayName}</div>
             {phone && <div className="mt-0.5 font-mono text-sm text-ink-muted">{phone}</div>}
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
-              <span className="badge badge-role">{role}</span>
+              <span className="badge badge-role">{roleLabel}</span>
               <span className="text-[11px] text-ink-dim">
-                {canEdit ? 'Can edit project data' : 'Read-only access'}
+                {canManageUsers
+                  ? 'Full access · can manage users'
+                  : canEdit
+                    ? 'Can edit project data'
+                    : 'Read-only access'}
               </span>
             </div>
           </div>
@@ -48,7 +53,9 @@ export default function ProfilePage() {
           </div>
           <div className="panel-inset p-3">
             <dt className="text-[10px] font-bold uppercase tracking-wide text-ink-dim">Role</dt>
-            <dd className="mt-0.5 text-sm capitalize">{role}</dd>
+            <dd className="mt-0.5 text-sm">
+              {roleLabel} <span className="text-ink-dim">({role})</span>
+            </dd>
           </div>
           <div className="panel-inset p-3 sm:col-span-2">
             <dt className="text-[10px] font-bold uppercase tracking-wide text-ink-dim">Phone</dt>
@@ -62,12 +69,32 @@ export default function ProfilePage() {
           ) : null}
         </dl>
 
-        <p className="mt-4 text-xs leading-relaxed text-ink-dim">
-          Set roles in Clerk Dashboard → Users → Metadata (Public):{' '}
-          <code className="text-amber-300">{`{ "role": "editor" }`}</code> or{' '}
-          <code className="text-amber-300">viewer</code> / <code className="text-amber-300">admin</code>.
-          Use the panel below to update profile details and security (password if enabled in Clerk).
-        </p>
+        <div className="mt-4 rounded-lg border border-surface-600 bg-surface-950/50 p-3 text-xs leading-relaxed text-ink-dim">
+          <strong className="text-ink-muted">Roles</strong>
+          <ul className="mt-2 list-inside list-disc space-y-1">
+            <li>
+              <code className="text-amber-300">admin</code> — full project access + create users
+            </li>
+            <li>
+              <code className="text-amber-300">editor</code> — full project edit (no user management)
+            </li>
+            <li>
+              <code className="text-amber-300">view-only</code> — read only
+            </li>
+          </ul>
+          <p className="mt-2">
+            Set in Clerk Dashboard → Users → Metadata (Public):{' '}
+            <code className="text-amber-300">{`{ "role": "editor" }`}</code>
+          </p>
+        </div>
+
+        {canManageUsers && (
+          <div className="mt-4">
+            <Link href="/users" className="btn-secondary btn-sm">
+              Manage users
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="overflow-hidden panel p-2 sm:p-4">

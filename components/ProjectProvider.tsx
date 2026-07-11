@@ -9,8 +9,10 @@ import {
   useState,
   type ReactNode
 } from 'react';
+import { useUser } from '@clerk/nextjs';
 import type { ProjectData } from '@/lib/types';
 import { loadProject, saveProject } from '@/lib/storage';
+import { canEditProject, normalizeRole } from '@/lib/roles';
 
 type Updater = ProjectData | ((prev: ProjectData) => ProjectData);
 
@@ -25,6 +27,7 @@ interface ProjectContextValue {
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
+  const { user } = useUser();
   const [data, setDataState] = useState<ProjectData | null>(null);
 
   useEffect(() => {
@@ -35,12 +38,20 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (data) saveProject(data);
   }, [data]);
 
-  const setData = useCallback((updater: Updater) => {
-    setDataState((prev) => {
-      if (!prev) return prev;
-      return typeof updater === 'function' ? updater(prev) : updater;
-    });
-  }, []);
+  const setData = useCallback(
+    (updater: Updater) => {
+      const role = normalizeRole(user?.publicMetadata?.role ?? user?.unsafeMetadata?.role);
+      if (!canEditProject(role)) {
+        console.warn('[SDH] Blocked write — role is view-only');
+        return;
+      }
+      setDataState((prev) => {
+        if (!prev) return prev;
+        return typeof updater === 'function' ? updater(prev) : updater;
+      });
+    },
+    [user]
+  );
 
   const getKeysDate = useCallback(() => {
     if (!data) return '2026-08-01';

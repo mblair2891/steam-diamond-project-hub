@@ -62,18 +62,23 @@ Also accepts legacy `VITE_CLERK_PUBLISHABLE_KEY` as a fallback for the publishab
 
 Allow `http://localhost:3000` and your production Vercel URL in Clerk.
 
-### 5. Roles (Editor / Viewer)
+### 5. Roles
 
 **Users → user → Metadata → Public:**
 
 ```json
-{ "role": "editor" }
+{ "role": "admin" }
 ```
 
-| Role | Access |
-|------|--------|
-| `editor` / `admin` | Full edit |
-| `viewer` or missing | Read-only |
+| `role` | Access |
+|--------|--------|
+| `admin` | Full project edit **+ create/manage users** (**/users** page) |
+| `editor` | Full project edit (tasks, dates, calendar…) — **no** user management |
+| `view-only` | Read only (default if missing). Legacy `viewer` maps to view-only |
+
+Admins invite users in-app at **/users** (phone creates a Clerk user for SMS login; optional email invitation).
+
+Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. User APIs require admin.
 
 ---
 

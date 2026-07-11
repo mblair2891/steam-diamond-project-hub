@@ -9,7 +9,7 @@ import { useProject } from '@/components/ProjectProvider';
 import { downloadBlob } from '@/lib/dates';
 import { exportCalendarCSV, exportProjectJSON } from '@/lib/storage';
 
-const NAV = [
+const NAV_BASE = [
   { href: '/', label: 'Dashboard' },
   { href: '/gantt', label: 'Gantt' },
   { href: '/timeline', label: 'Timeline' },
@@ -23,10 +23,14 @@ const NAV = [
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { canEdit, displayName, phone, role, isViewer } = useRole();
+  const { canEdit, canManageUsers, displayName, phone, role, roleLabel, isViewer } = useRole();
   const { data } = useProject();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+
+  const NAV = canManageUsers
+    ? [...NAV_BASE.slice(0, -1), { href: '/users', label: 'Users' }, NAV_BASE[NAV_BASE.length - 1]]
+    : NAV_BASE;
 
   function isActive(href: string) {
     if (href === '/') return pathname === '/';
@@ -60,7 +64,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="max-w-[160px] truncate" title={phone || displayName}>
                   {phone || displayName}
                 </span>
-                <span className="badge badge-role">{role}</span>
+                <span className="badge badge-role">{roleLabel}</span>
               </span>
 
               <div className="relative">
@@ -153,7 +157,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               ))}
             </nav>
             <div className="border-t border-surface-600 p-4 text-xs text-ink-dim">
-              {phone || displayName} · {role}
+              {phone || displayName} · {roleLabel}
               {!canEdit && ' · read-only'}
             </div>
           </aside>
@@ -163,7 +167,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-3 py-5 sm:px-5 sm:py-7">
         {isViewer && (
           <div className="mb-5 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-sm text-amber-300">
-            <strong>Viewer mode</strong> — browse only. Roles are set in the Clerk Dashboard.
+            <strong>View only</strong> — you can browse the hub but cannot edit. Contact an admin
+            for access.
           </div>
         )}
         {children}
