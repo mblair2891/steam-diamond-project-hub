@@ -5,10 +5,47 @@ import { useProject } from '@/components/ProjectProvider';
 import KeyDatesPanel from '@/components/KeyDatesPanel';
 import { useRole } from '@/hooks/useRole';
 import { daysFromToday, formatDate, formatDateShort } from '@/lib/dates';
+import type { Task } from '@/lib/types';
+
+function MyTaskRow({ t }: { t: Task }) {
+  const d = daysFromToday(t.due);
+  let urgency = 'border-surface-600 bg-surface-950/40';
+  let label = d === 0 ? 'Due today' : d > 0 ? `${d} day${d === 1 ? '' : 's'} left` : `${Math.abs(d)}d overdue`;
+  let labelClass = 'text-ink-dim';
+
+  if (!t.done && d < 0) {
+    urgency = 'border-red-500/40 bg-red-500/10';
+    labelClass = 'text-red-300 font-semibold';
+  } else if (!t.done && d <= 7) {
+    urgency = 'border-amber-400/40 bg-amber-400/10';
+    labelClass = 'text-amber-300 font-semibold';
+  }
+
+  return (
+    <div className={`rounded-lg border px-3 py-2.5 ${urgency}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className={`text-sm font-medium ${t.done ? 'line-through opacity-60' : ''}`}>
+            {t.title}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className={`badge badge-${t.priority.toLowerCase()}`}>{t.priority}</span>
+            <span className="text-[11px] text-ink-dim">Due {formatDate(t.due)}</span>
+            {t.dependsOnId && (
+              <span className="text-[11px] text-ink-dim">Has dependency</span>
+            )}
+          </div>
+        </div>
+        {!t.done && <span className={`shrink-0 text-xs ${labelClass}`}>{label}</span>}
+        {t.done && <span className="badge badge-complete">Done</span>}
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const { data, getKeysDate, getOpenDate } = useProject();
-  const { canEdit } = useRole();
+  const { canEdit, user, displayName } = useRole();
   const keys = getKeysDate();
   const open = getOpenDate();
   const daysKeys = daysFromToday(keys);
@@ -17,6 +54,17 @@ export default function DashboardPage() {
   const pendingAppr = data.approvals.filter(
     (a) => a.status === 'pending' || a.status === 'review'
   ).length;
+
+  const myTasks = data.tasks
+    .filter((t) => t.assigneeId && user?.id && t.assigneeId === user.id)
+    .sort((a, b) => Number(a.done) - Number(b.done) || a.due.localeCompare(b.due));
+
+  const myOpen = myTasks.filter((t) => !t.done);
+  const myOverdue = myOpen.filter((t) => daysFromToday(t.due) < 0);
+  const myDueSoon = myOpen.filter((t) => {
+    const d = daysFromToday(t.due);
+    return d >= 0 && d <= 7;
+  });
 
   const urgent = [...data.tasks]
     .filter((t) => !t.done)
@@ -36,7 +84,10 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="section-title">Dashboard</h2>
-          <p className="ml-3 mt-1 text-sm text-ink-muted">{data.projectName}</p>
+          <p className="ml-3 mt-1 text-sm text-ink-muted">
+            {data.projectName}
+            {displayName ? ` · Hi, ${displayName}` : ''}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/tasks" className="btn-secondary btn-sm">
@@ -76,6 +127,34 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Personal assigned tasks */}
+      <div className="panel p-4 sm:p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wide">My assigned tasks</h3>
+            <p className="mt-0.5 text-[11px] text-ink-dim">
+              {myOpen.length} open
+              {myOverdue.length > 0 ? ` · ${myOverdue.length} overdue` : ''}
+              {myDueSoon.length > 0 ? ` · ${myDueSoon.length} due within 7 days` : ''}
+            </p>
+          </div>
+          <Link href="/tasks" className="btn-ghost btn-sm">
+            All tasks
+          </Link>
+        </div>
+        {myTasks.length === 0 ? (
+          <div className="empty-state !py-6">
+            No tasks assigned to you yet. Editors can assign tasks on the Tasks page.
+          </div>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {myTasks.slice(0, 8).map((t) => (
+              <MyTaskRow key={t.id} t={t} />
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <KeyDatesPanel editable={canEdit} />
         <div className="panel p-4 sm:p-5">
@@ -94,6 +173,9 @@ export default function DashboardPage() {
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <span className={`badge badge-${t.priority.toLowerCase()}`}>{t.priority}</span>
                   <span className="text-[11px] text-ink-dim">Due {formatDate(t.due)}</span>
+                  {t.assigneeName && (
+                    <span className="badge badge-role">{t.assigneeName}</span>
+                  )}
                 </div>
               </div>
             ))

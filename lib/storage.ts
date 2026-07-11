@@ -1,7 +1,13 @@
-import type { MediaEvent, ProjectData } from './types';
+import type { MediaEvent, ProjectData, Task } from './types';
 import { buildSampleData } from './sampleData';
+import { cascadeTaskDependencies, normalizeTask } from './tasks';
 
 const KEY = 'sdh_project_v2';
+
+function migrateProject(data: ProjectData): ProjectData {
+  const tasks = cascadeTaskDependencies((data.tasks || []).map((t: Task) => normalizeTask(t)));
+  return { ...data, tasks };
+}
 
 export function loadProject(): ProjectData {
   if (typeof window === 'undefined') return buildSampleData();
@@ -12,7 +18,7 @@ export function loadProject(): ProjectData {
       saveProject(data);
       return data;
     }
-    return JSON.parse(raw) as ProjectData;
+    return migrateProject(JSON.parse(raw) as ProjectData);
   } catch {
     const data = buildSampleData();
     saveProject(data);

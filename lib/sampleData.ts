@@ -1,6 +1,171 @@
 import type { ProjectData } from './types';
+import { cascadeTaskDependencies, normalizeTask } from './tasks';
 
 export function buildSampleData(): ProjectData {
+  const tasks = cascadeTaskDependencies(
+    [
+      {
+        id: 't1',
+        title: 'Final floor plan sign-off',
+        priority: 'High' as const,
+        due: '2026-07-10',
+        startDate: '2026-07-04',
+        durationDays: 7,
+        done: true,
+        notes: 'Owners aligned on bar/smoker layout',
+        category: 'Design',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: null
+      },
+      {
+        id: 't2',
+        title: 'Pull building & health permits',
+        priority: 'High' as const,
+        due: '2026-07-20',
+        startDate: '2026-07-11',
+        durationDays: 10,
+        done: false,
+        notes: '',
+        category: 'Permits',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't1'
+      },
+      {
+        id: 't3',
+        title: 'Order custom smoker / pit package',
+        priority: 'High' as const,
+        due: '2026-07-15',
+        startDate: '2026-07-11',
+        durationDays: 5,
+        done: false,
+        notes: 'Lead time critical',
+        category: 'Equipment',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't1'
+      },
+      {
+        id: 't4',
+        title: 'HVAC & make-up air for smoke',
+        priority: 'High' as const,
+        due: '2026-07-25',
+        durationDays: 7,
+        done: false,
+        notes: '',
+        category: 'MEP',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't2'
+      },
+      {
+        id: 't5',
+        title: 'Bar millwork shop drawings',
+        priority: 'Medium' as const,
+        due: '2026-07-28',
+        durationDays: 7,
+        done: false,
+        notes: '',
+        category: 'Design',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't1'
+      },
+      {
+        id: 't6',
+        title: 'Select finishes',
+        priority: 'Medium' as const,
+        due: '2026-07-22',
+        durationDays: 5,
+        done: false,
+        notes: '',
+        category: 'Design',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: null
+      },
+      {
+        id: 't7',
+        title: 'Utility disconnect / demo plan',
+        priority: 'High' as const,
+        due: '2026-07-30',
+        durationDays: 5,
+        done: false,
+        notes: 'Ready for keys day',
+        category: 'Construction',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't2'
+      },
+      {
+        id: 't8',
+        title: 'Signage & exterior branding',
+        priority: 'Medium' as const,
+        due: '2026-08-20',
+        durationDays: 10,
+        done: false,
+        notes: '',
+        category: 'Branding',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: null
+      },
+      {
+        id: 't9',
+        title: 'Staff hiring plan',
+        priority: 'Medium' as const,
+        due: '2026-08-15',
+        durationDays: 14,
+        done: false,
+        notes: '',
+        category: 'Ops',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: null
+      },
+      {
+        id: 't10',
+        title: 'POS & reservations setup',
+        priority: 'Low' as const,
+        due: '2026-08-25',
+        durationDays: 7,
+        done: false,
+        notes: '',
+        category: 'Ops',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't9'
+      },
+      {
+        id: 't11',
+        title: 'Health pre-inspection walk',
+        priority: 'High' as const,
+        due: '2026-09-05',
+        durationDays: 3,
+        done: false,
+        notes: '',
+        category: 'Compliance',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't4'
+      },
+      {
+        id: 't12',
+        title: 'Opening week inventory order',
+        priority: 'Medium' as const,
+        due: '2026-09-08',
+        durationDays: 5,
+        done: false,
+        notes: '',
+        category: 'Ops',
+        assigneeId: null,
+        assigneeName: null,
+        dependsOnId: 't10'
+      }
+    ].map(normalizeTask)
+  );
+
   return {
     version: 1,
     projectName: 'Steam Distillery × Diamond House BBQ',
@@ -20,20 +185,7 @@ export function buildSampleData(): ProjectData {
       { id: 'ms2', name: 'Inspections', startOffset: 36, endOffset: 36, type: 'milestone' },
       { id: 'ms3', name: 'Opening', startOffset: 45, endOffset: 45, type: 'milestone' }
     ],
-    tasks: [
-      { id: 't1', title: 'Final floor plan sign-off', priority: 'High', due: '2026-07-10', done: true, notes: 'Owners aligned on bar/smoker layout', category: 'Design' },
-      { id: 't2', title: 'Pull building & health permits', priority: 'High', due: '2026-07-20', done: false, notes: '', category: 'Permits' },
-      { id: 't3', title: 'Order custom smoker / pit package', priority: 'High', due: '2026-07-15', done: false, notes: 'Lead time critical', category: 'Equipment' },
-      { id: 't4', title: 'HVAC & make-up air for smoke', priority: 'High', due: '2026-07-25', done: false, notes: '', category: 'MEP' },
-      { id: 't5', title: 'Bar millwork shop drawings', priority: 'Medium', due: '2026-07-28', done: false, notes: '', category: 'Design' },
-      { id: 't6', title: 'Select finishes', priority: 'Medium', due: '2026-07-22', done: false, notes: '', category: 'Design' },
-      { id: 't7', title: 'Utility disconnect / demo plan', priority: 'High', due: '2026-07-30', done: false, notes: 'Ready for keys day', category: 'Construction' },
-      { id: 't8', title: 'Signage & exterior branding', priority: 'Medium', due: '2026-08-20', done: false, notes: '', category: 'Branding' },
-      { id: 't9', title: 'Staff hiring plan', priority: 'Medium', due: '2026-08-15', done: false, notes: '', category: 'Ops' },
-      { id: 't10', title: 'POS & reservations setup', priority: 'Low', due: '2026-08-25', done: false, notes: '', category: 'Ops' },
-      { id: 't11', title: 'Health pre-inspection walk', priority: 'High', due: '2026-09-05', done: false, notes: '', category: 'Compliance' },
-      { id: 't12', title: 'Opening week inventory order', priority: 'Medium', due: '2026-09-08', done: false, notes: '', category: 'Ops' }
-    ],
+    tasks,
     mediaEvents: [
       { id: 'me1', title: 'Teaser: Something’s smoking…', date: '2026-07-15', type: 'post', channel: 'Instagram', notes: '' },
       { id: 'me2', title: 'Partnership announcement', date: '2026-07-22', type: 'announcement', channel: 'All', notes: '' },

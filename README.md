@@ -100,7 +100,9 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 - Key Dates — editable (defaults Keys Aug 1 2026, Opening Sept 2026); Gantt offsets from Keys  
 - Gantt — horizontal timeline  
 - Timeline — combined milestones  
-- Project Tasks — CRUD, priority, due dates, search  
+- Project Tasks — CRUD, priority, due dates, **assignment**, **dependencies**, search  
+- Personal dashboard — **My assigned tasks** with days until due / overdue highlights  
+- Gantt — phases + **task bars** (dependency-adjusted start/end)  
 - Media Blitz Calendar — month view + CSV export  
 - Media Library — drag & drop previews  
 - Approvals — decision log  
