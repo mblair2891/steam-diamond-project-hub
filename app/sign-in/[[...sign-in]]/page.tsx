@@ -12,13 +12,22 @@ export default function SignInPage() {
         <p className="mt-3 text-xs text-ink-dim">Sign in with your phone number</p>
       </div>
       <SignIn
+        routing="path"
+        path="/sign-in"
+        // No public sign-up — accounts are created by admins only
         appearance={{
           elements: {
             rootBox: 'w-full max-w-md',
-            card: 'border border-surface-600 bg-surface-800 shadow-panel'
+            card: 'border border-surface-600 bg-surface-800 shadow-panel',
+            // Hide "Don't have an account? Sign up" footer
+            footerAction: { display: 'none' },
+            footer: { display: 'none' }
           }
         }}
       />
+      <p className="mt-6 max-w-sm text-center text-[11px] leading-relaxed text-ink-dim">
+        Accounts are created by an administrator. Contact your project admin if you need access.
+      </p>
     </div>
   );
 }

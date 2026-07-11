@@ -1,24 +1,9 @@
-import { SignUp } from '@clerk/nextjs';
+import { redirect } from 'next/navigation';
 
+/**
+ * Public self-serve sign-up is disabled.
+ * Users are created in the Clerk Dashboard (or by admins via /users).
+ */
 export default function SignUpPage() {
-  return (
-    <div className="flex min-h-full flex-col items-center justify-center p-4">
-      <div className="mb-8 text-center">
-        <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-amber-400/50 bg-surface-800 text-lg font-bold text-amber-400">
-          S×D
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Steam × Diamond</h1>
-        <p className="mt-1.5 text-sm font-medium text-ink-muted">Create account</p>
-        <p className="mt-3 text-xs text-ink-dim">Phone number · SMS verification</p>
-      </div>
-      <SignUp
-        appearance={{
-          elements: {
-            rootBox: 'w-full max-w-md',
-            card: 'border border-surface-600 bg-surface-800 shadow-panel'
-          }
-        }}
-      />
-    </div>
-  );
+  redirect('/sign-in');
 }

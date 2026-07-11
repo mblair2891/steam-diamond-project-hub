@@ -36,6 +36,9 @@ Open [http://localhost:3000](http://localhost:3000).
 
 1. Enable **Phone number** (SMS verification)  
 2. Disable Email / Password if you want phone-only  
+3. Optional: turn off public sign-up in Clerk so only invited/dashboard users exist  
+4. The app hides “Create an account” on Sign In; `/sign-up` redirects to `/sign-in`  
+   Users are created by admins (Clerk Dashboard or in-app **Users** page).  
 
 ### 3. Environment variables
 
