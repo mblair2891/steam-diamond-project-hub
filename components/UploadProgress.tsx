@@ -6,6 +6,7 @@ const PHASE_LABEL: Record<UploadPhase, string> = {
   queued: 'Queued…',
   uploading: 'Uploading…',
   processing: 'Saving to cloud…',
+  retrying: 'Retrying…',
   complete: 'Uploaded successfully',
   error: 'Upload failed'
 };
@@ -17,6 +18,10 @@ export default function UploadProgress({
   mime,
   phase = 'uploading',
   error,
+  attempt,
+  maxAttempts,
+  canRetry,
+  onRetry,
   onDismiss
 }: {
   label?: string;
@@ -25,6 +30,10 @@ export default function UploadProgress({
   mime?: string | null;
   phase?: UploadPhase;
   error?: string;
+  attempt?: number;
+  maxAttempts?: number;
+  canRetry?: boolean;
+  onRetry?: () => void;
   onDismiss?: () => void;
 }) {
   const pct =
@@ -34,7 +43,9 @@ export default function UploadProgress({
         ? 0
         : phase === 'processing'
           ? Math.max(92, Math.min(99, Math.round(progress || 92)))
-          : Math.max(0, Math.min(90, Math.round(progress)));
+          : phase === 'retrying'
+            ? Math.max(2, Math.min(15, Math.round(progress || 2)))
+            : Math.max(0, Math.min(90, Math.round(progress)));
 
   const isImage = (mime || '').startsWith('image/');
   const isVideo = (mime || '').startsWith('video/');
@@ -45,10 +56,16 @@ export default function UploadProgress({
         ? 'bg-red-400'
         : phase === 'processing'
           ? 'bg-sky-400'
-          : 'bg-amber-400';
+          : phase === 'retrying'
+            ? 'bg-amber-300'
+            : 'bg-amber-400';
 
   const statusText =
-    phase === 'error' ? error || PHASE_LABEL.error : PHASE_LABEL[phase] || PHASE_LABEL.uploading;
+    phase === 'error'
+      ? error || PHASE_LABEL.error
+      : phase === 'retrying' && attempt && maxAttempts
+        ? `Retrying (${attempt}/${maxAttempts})…`
+        : PHASE_LABEL[phase] || PHASE_LABEL.uploading;
 
   return (
     <div
@@ -91,22 +108,33 @@ export default function UploadProgress({
                     ? 'text-red-300'
                     : phase === 'processing'
                       ? 'text-sky-300'
-                      : 'text-amber-300'
+                      : phase === 'retrying'
+                        ? 'text-amber-200'
+                        : 'text-amber-300'
               }`}
             >
               {statusText}
             </div>
           </div>
-          {onDismiss && (phase === 'complete' || phase === 'error') && (
-            <button type="button" className="btn-ghost btn-sm shrink-0" onClick={onDismiss}>
-              ✕
-            </button>
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {phase === 'error' && canRetry && onRetry && (
+              <button type="button" className="btn-secondary btn-sm" onClick={onRetry}>
+                Retry
+              </button>
+            )}
+            {onDismiss && (phase === 'complete' || phase === 'error') && (
+              <button type="button" className="btn-ghost btn-sm" onClick={onDismiss}>
+                ✕
+              </button>
+            )}
+          </div>
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-600">
           <div
             className={`h-full rounded-full transition-all duration-300 ${barColor} ${
-              phase === 'uploading' || phase === 'processing' ? 'animate-pulse' : ''
+              phase === 'uploading' || phase === 'processing' || phase === 'retrying'
+                ? 'animate-pulse'
+                : ''
             }`}
             style={{ width: `${phase === 'error' ? 0 : pct}%` }}
           />
@@ -114,9 +142,13 @@ export default function UploadProgress({
         <div className="mt-1 flex items-center justify-between text-[11px] text-ink-dim">
           <span>
             {phase === 'complete' ? '100%' : phase === 'error' ? '—' : `${pct}%`}
+            {attempt && maxAttempts && phase !== 'complete' && phase !== 'error'
+              ? ` · try ${attempt}/${maxAttempts}`
+              : ''}
           </span>
           {phase === 'processing' && <span>Writing to Vercel Blob…</span>}
           {phase === 'uploading' && <span>Sending to server…</span>}
+          {phase === 'retrying' && <span>Automatic retry…</span>}
         </div>
         {phase === 'error' && error && (
           <p className="mt-1 text-[11px] leading-snug text-red-300/90">{error}</p>

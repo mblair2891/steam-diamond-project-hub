@@ -158,7 +158,7 @@ export default function MediaPage() {
       <div>
         <h2 className="section-title">Media Library</h2>
         <p className="ml-3 mt-1 text-sm text-ink-muted">
-          Server-side Vercel Blob upload · progress continues if you leave this page
+          Server-side Vercel Blob · progress persists across pages · auto-retry on network errors
         </p>
       </div>
 

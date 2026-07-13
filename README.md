@@ -113,13 +113,19 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 |-------|---------|
 | Uploading… | File bytes sent to our API (XHR progress 0–90%) |
 | Saving to cloud… | Server writing to Vercel Blob (`put`) |
+| Retrying… | Transient network/5xx — automatic retry (up to 3 attempts) |
 | Uploaded successfully | API returned `url`; library metadata saved |
 
 Max file size: **100MB** (app check). On Vercel Hobby, request body limits may be lower —
 if large videos fail, check platform limits or upgrade the deployment plan.
 
-Progress continues in a global panel if you navigate away. Project data is written to
-`localStorage` immediately when a library asset is saved.
+**Leaving the page**
+
+- **In-app navigation** (Dashboard, Gantt, etc.) is fine — the global upload panel + sticky banner stay mounted in the app layout.
+- **Closing / refreshing the tab** shows a browser warning while uploads are active (files live in memory until done).
+- Failed jobs show a **Retry** button while the file is still held in the session.
+
+Project data is written to `localStorage` immediately when a library asset is saved (after Blob URL is confirmed).
 
 ---
 

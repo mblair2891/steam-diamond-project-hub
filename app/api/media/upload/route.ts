@@ -153,13 +153,31 @@ export async function POST(request: Request) {
     const useMultipart = file.size >= MULTIPART_THRESHOLD;
 
     // Official server-side upload — uses BLOB_READ_WRITE_TOKEN from the environment
-    const blob = await put(pathname, file, {
-      access: 'public',
-      contentType,
-      addRandomSuffix: true,
-      multipart: useMultipart,
-      token: process.env.BLOB_READ_WRITE_TOKEN
-    });
+    let blob;
+    try {
+      blob = await put(pathname, file, {
+        access: 'public',
+        contentType,
+        addRandomSuffix: true,
+        multipart: useMultipart,
+        token: process.env.BLOB_READ_WRITE_TOKEN
+      });
+    } catch (putErr) {
+      console.error('[api/media/upload] put failed', putErr);
+      const raw = putErr instanceof Error ? putErr.message : String(putErr);
+      // 503/502 so the client retry logic treats Blob outages as retryable
+      const retryable = /fetch failed|ECONNRESET|timeout|ETIMEDOUT|rate|503|502|temporarily/i.test(
+        raw
+      );
+      return NextResponse.json(
+        {
+          error: /BLOB_READ_WRITE_TOKEN|No token/i.test(raw)
+            ? 'Vercel Blob token missing or invalid. Set BLOB_READ_WRITE_TOKEN and redeploy.'
+            : raw || 'Failed to store file in Vercel Blob. Please try again.'
+        },
+        { status: retryable ? 503 : 500 }
+      );
+    }
 
     if (!blob?.url) {
       console.error('[api/media/upload] put returned no url', blob);
@@ -169,31 +187,42 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      url: blob.url,
-      pathname: blob.pathname,
-      contentType: blob.contentType || contentType,
-      size: file.size,
-      name: file.name,
-      downloadUrl: blob.downloadUrl || blob.url
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        url: blob.url,
+        pathname: blob.pathname,
+        contentType: blob.contentType || contentType,
+        size: file.size,
+        name: file.name,
+        downloadUrl: blob.downloadUrl || blob.url
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store'
+        }
+      }
+    );
   } catch (err) {
     console.error('[api/media/upload]', err);
     const raw = err instanceof Error ? err.message : String(err);
 
     // Surface common Blob / platform errors clearly
     let message = raw || 'Upload failed on the server.';
+    let status = 500;
     if (/BLOB_READ_WRITE_TOKEN|No token/i.test(raw)) {
       message =
         'Vercel Blob token missing or invalid. Set BLOB_READ_WRITE_TOKEN and redeploy.';
+      status = 503;
     } else if (/payload|body.*too large|Entity Too Large|413/i.test(raw)) {
       message =
         'File is too large for this server request. Try a smaller file, or raise the deployment body size limit.';
+      status = 413;
     } else if (/fetch failed|ECONNRESET|timeout|ETIMEDOUT/i.test(raw)) {
       message = 'Network error while saving to Vercel Blob. Please try again.';
+      status = 503;
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status });
   }
 }
