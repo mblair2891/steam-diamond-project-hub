@@ -167,7 +167,7 @@ export function buildSampleData(): ProjectData {
   );
 
   return {
-    version: 1,
+    version: 2,
     projectName: 'Steam Distillery × Diamond House BBQ',
     keyDates: [
       { id: 'kd_keys', label: 'Keys Received', date: '2026-08-01' },
@@ -187,25 +187,189 @@ export function buildSampleData(): ProjectData {
     ],
     tasks,
     mediaEvents: [
-      { id: 'me1', title: 'Teaser: Something’s smoking…', date: '2026-07-15', type: 'post', channel: 'Instagram', notes: '' },
-      { id: 'me2', title: 'Partnership announcement', date: '2026-07-22', type: 'announcement', channel: 'All', notes: '' },
-      { id: 'me3', title: 'Behind the build — Keys day', date: '2026-08-01', type: 'video', channel: 'Reels', notes: '' },
-      { id: 'me4', title: 'Weekly build diary #1', date: '2026-08-08', type: 'post', channel: 'Instagram', notes: '' },
-      { id: 'me5', title: 'Weekly build diary #2', date: '2026-08-15', type: 'post', channel: 'Instagram', notes: '' },
-      { id: 'me6', title: 'Founder story', date: '2026-08-18', type: 'video', channel: 'YouTube', notes: '' },
-      { id: 'me7', title: 'Menu teaser carousel', date: '2026-08-25', type: 'post', channel: 'Instagram', notes: '' },
-      { id: 'me8', title: 'Soft opening invite', date: '2026-09-01', type: 'announcement', channel: 'Email + Social', notes: '' },
-      { id: 'me9', title: 'Grand opening promo', date: '2026-09-10', type: 'event', channel: 'All', notes: '' },
-      { id: 'me10', title: 'Opening day live', date: '2026-09-15', type: 'video', channel: 'Stories', notes: '' }
+      {
+        id: 'me1',
+        title: 'Teaser: Something’s smoking…',
+        date: '2026-07-15',
+        type: 'post',
+        channel: 'Instagram',
+        notes: 'Mood teaser — no location reveal',
+        status: 'scheduled',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me2',
+        title: 'Partnership announcement',
+        date: '2026-07-22',
+        type: 'announcement',
+        channel: 'All',
+        notes: 'Steam Distillery × Diamond House BBQ',
+        status: 'draft',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me3',
+        title: 'Behind the build — Keys day',
+        date: '2026-08-01',
+        type: 'video',
+        channel: 'Reels',
+        notes: 'Keys handoff + first walkthrough',
+        status: 'scheduled',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me4',
+        title: 'Weekly build diary #1',
+        date: '2026-08-08',
+        type: 'post',
+        channel: 'Instagram',
+        notes: '',
+        status: 'draft',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me5',
+        title: 'Weekly build diary #2',
+        date: '2026-08-15',
+        type: 'post',
+        channel: 'Instagram',
+        notes: '',
+        status: 'draft',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me6',
+        title: 'Founder story',
+        date: '2026-08-18',
+        type: 'video',
+        channel: 'YouTube',
+        notes: 'Interview cut',
+        status: 'in-review',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me7',
+        title: 'Menu teaser carousel',
+        date: '2026-08-25',
+        type: 'image',
+        channel: 'Instagram',
+        notes: 'Plate + cocktail heroes',
+        status: 'draft',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me8',
+        title: 'Soft opening invite',
+        date: '2026-09-01',
+        type: 'announcement',
+        channel: 'Email + Social',
+        notes: '',
+        status: 'scheduled',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me9',
+        title: 'Grand opening promo',
+        date: '2026-09-10',
+        type: 'event',
+        channel: 'All',
+        notes: '',
+        status: 'draft',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'me10',
+        title: 'Opening day live',
+        date: '2026-09-15',
+        type: 'video',
+        channel: 'Stories',
+        notes: '',
+        status: 'scheduled',
+        fileUrl: null,
+        assigneeId: null,
+        assigneeName: null
+      }
     ],
     mediaAssets: [],
     approvals: [
-      { id: 'a1', title: 'Final floor plan & seating', owner: 'Owners', status: 'approved', notes: '', updatedAt: '2026-07-01' },
-      { id: 'a2', title: 'Budget contingency (+10%)', owner: 'Owners', status: 'pending', notes: '', updatedAt: '' },
-      { id: 'a3', title: 'Co-branded logo lockup', owner: 'Marketing', status: 'pending', notes: '', updatedAt: '' },
-      { id: 'a4', title: 'Opening date public announcement', owner: 'Owners', status: 'pending', notes: '', updatedAt: '' },
-      { id: 'a5', title: 'Menu pricing tier', owner: 'Ops', status: 'review', notes: '', updatedAt: '' },
-      { id: 'a6', title: 'Millwork contractor', owner: 'GC', status: 'approved', notes: '', updatedAt: '2026-07-05' }
+      {
+        id: 'a1',
+        title: 'Final floor plan & seating',
+        owner: 'Owners',
+        status: 'approved',
+        notes: '',
+        updatedAt: '2026-07-01',
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'a2',
+        title: 'Budget contingency (+10%)',
+        owner: 'Owners',
+        status: 'pending',
+        notes: '',
+        updatedAt: '',
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'a3',
+        title: 'Co-branded logo lockup',
+        owner: 'Marketing',
+        status: 'pending',
+        notes: '',
+        updatedAt: '',
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'a4',
+        title: 'Opening date public announcement',
+        owner: 'Owners',
+        status: 'pending',
+        notes: '',
+        updatedAt: '',
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'a5',
+        title: 'Menu pricing tier',
+        owner: 'Ops',
+        status: 'review',
+        notes: '',
+        updatedAt: '',
+        assigneeId: null,
+        assigneeName: null
+      },
+      {
+        id: 'a6',
+        title: 'Millwork contractor',
+        owner: 'GC',
+        status: 'approved',
+        notes: '',
+        updatedAt: '2026-07-05',
+        assigneeId: null,
+        assigneeName: null
+      }
     ],
     filming: {
       days: [

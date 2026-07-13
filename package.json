@@ -10,14 +10,17 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.0",
+    "@vercel/blob": "^2.6.1",
     "next": "^14.2.28",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "twilio": "^6.0.2"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/twilio": "^3.19.2",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",

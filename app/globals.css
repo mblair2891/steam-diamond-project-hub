@@ -155,6 +155,11 @@ body {
   background: rgba(108, 182, 255, 0.12);
   color: #9ecfff;
 }
+.cal-event.image {
+  border-left-color: #f472b6;
+  background: rgba(244, 114, 182, 0.12);
+  color: #f9a8d4;
+}
 .cal-event.announcement {
   border-left-color: #c084fc;
   background: rgba(192, 132, 252, 0.12);

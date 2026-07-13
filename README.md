@@ -7,19 +7,54 @@
 | Framework | Next.js 14 + TypeScript (App Router) |
 | Styling | Tailwind CSS — dark UI, warm amber accents |
 | Auth | Clerk — phone number + SMS OTP |
-| Data | Browser `localStorage` for project content |
+| Project data | Browser `localStorage` for tasks, dates, metadata |
+| Media files | **Vercel Blob** (videos & images) |
+| Notifications | **Twilio SMS** to assigned reviewers |
 
 ## Quick start
 
 ```bash
 cd steam-diamond-project-hub
 cp .env.example .env.local
-# Add Clerk keys to .env.local
+# Add Clerk (+ optional Blob / Twilio) keys
 npm install
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Environment variables
+
+`.env.local` (and Vercel → **Environment Variables**):
+
+```env
+# Clerk (required)
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
+
+# Vercel Blob (required for media uploads)
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+
+# Twilio SMS (optional — notifications no-op if missing)
+TWILIO_ACCOUNT_SID=AC...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=+1...
+```
+
+| Variable | Required |
+|----------|----------|
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes |
+| `CLERK_SECRET_KEY` | Yes |
+| `BLOB_READ_WRITE_TOKEN` | For Media Library / Media Blitz uploads |
+| `TWILIO_*` | For SMS when tasks / media / approvals need attention |
+
+Also accepts legacy `VITE_CLERK_PUBLISHABLE_KEY` as a fallback for the publishable key.
 
 ---
 
@@ -40,32 +75,11 @@ Open [http://localhost:3000](http://localhost:3000).
 4. The app hides “Create an account” on Sign In; `/sign-up` redirects to `/sign-in`  
    Users are created by admins (Clerk Dashboard or in-app **Users** page).  
 
-### 3. Environment variables
-
-`.env.local` (and Vercel → Environment Variables):
-
-```env
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
-
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
-```
-
-| Variable | Required |
-|----------|----------|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes |
-| `CLERK_SECRET_KEY` | Yes (server / middleware) |
-
-Also accepts legacy `VITE_CLERK_PUBLISHABLE_KEY` as a fallback for the publishable key.
-
-### 4. Domains
+### 3. Domains
 
 Allow `http://localhost:3000` and your production Vercel URL in Clerk.
 
-### 5. Roles
+### 4. Roles
 
 **Users → user → Metadata → Public:**
 
@@ -85,12 +99,40 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 
 ---
 
+## Vercel Blob (media storage)
+
+1. Vercel Dashboard → **Storage** → create a **Blob** store  
+2. Copy `BLOB_READ_WRITE_TOKEN` into `.env.local` and Vercel project env  
+3. Uploads use the client `upload()` helper → `/api/blob/upload`  
+4. Metadata (title, description, status, schedule, assignee) stays in project data; **file bytes live in Blob**  
+
+Max file size: **100MB**. Progress bars and image/video previews are shown during upload.
+
+---
+
+## Twilio SMS notifications
+
+When configured, the hub texts assigned users when:
+
+| Trigger | When |
+|---------|------|
+| **Task** | User is newly assigned an open task |
+| **Media Blitz / Library** | Item set to `in-review` or reassigned |
+| **Approval** | Item is `pending` / `review` and assigned |
+
+Phone numbers come from each Clerk user’s primary phone. Users without a phone are skipped (logged, non-blocking).
+
+API: `POST /api/notify/sms` with `{ userIds, message, type, title }`.
+
+---
+
 ## Deploy on Vercel
 
 1. Push repo to GitHub  
 2. Import on [vercel.com](https://vercel.com) as **Next.js**  
-3. Add both Clerk env vars for **Production**  
-4. Deploy  
+3. Add Clerk + Blob (+ Twilio) env vars for **Production**  
+4. Link the Blob store to the project  
+5. Deploy  
 
 ---
 
@@ -98,17 +140,22 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 
 - Dashboard — days to keys/opening, open tasks, pending approvals, media assets  
 - Key Dates — editable (defaults Keys Aug 1 2026, Opening Sept 2026); Gantt offsets from Keys  
-- Gantt — horizontal timeline  
+- Gantt — horizontal timeline + task bars (dependency-adjusted)  
 - Timeline — combined milestones  
-- Project Tasks — CRUD, priority, due dates, **assignment**, **dependencies**, search  
+- Project Tasks — CRUD, priority, due dates, **assignment**, **dependencies**, **SMS on assign**  
 - Personal dashboard — **My assigned tasks** with days until due / overdue highlights  
-- Gantt — phases + **task bars** (dependency-adjusted start/end)  
-- Media Blitz Calendar — month view + CSV export  
-- Media Library — drag & drop previews  
-- Approvals — decision log  
+- **Media Blitz** — month calendar, post/video **drafts**, status workflow, file upload, CSV export  
+- **Media Library** — drag & drop to **Vercel Blob**, progress, previews, metadata & review  
+- Approvals — decision log with assignee + SMS on review  
 - Filming — shoot days + shot list  
-- Profile — Clerk `UserProfile` (info + security/password if enabled)  
+- Profile — Clerk `UserProfile`  
 - Export — full project JSON + calendar CSV  
+
+### Media draft statuses
+
+`draft` → `scheduled` → `in-review` → `approved` → `published`
+
+---
 
 ## Scripts
 
@@ -125,6 +172,10 @@ app/
   layout.tsx                 # ClerkProvider
   sign-in/ · sign-up/        # Phone auth
   (app)/                     # Protected shell + pages
+  api/
+    blob/upload/             # Vercel Blob client upload tokens
+    notify/sms/              # Twilio SMS
+    users/                   # Clerk user management
 middleware.ts                # auth.protect()
 components/ · hooks/ · lib/
 ```
@@ -135,3 +186,5 @@ components/ · hooks/ · lib/
 localStorage.removeItem('sdh_project_v2');
 location.reload();
 ```
+
+Note: clearing localStorage does **not** delete files already stored in Vercel Blob.

@@ -115,7 +115,7 @@ export default function DashboardPage() {
           { v: openTasks, l: 'Open Tasks' },
           {
             v: pendingAppr,
-            l: `Pending Approvals · ${data.mediaAssets.length} assets`
+            l: `Pending Approvals · ${data.mediaAssets.length} cloud assets`
           }
         ].map((m) => (
           <div key={m.l} className="metric-card">

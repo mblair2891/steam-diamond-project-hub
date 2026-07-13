@@ -6,6 +6,7 @@ import { useProject } from '@/components/ProjectProvider';
 import { useAssignableUsers } from '@/hooks/useAssignableUsers';
 import { useRole } from '@/hooks/useRole';
 import { daysFromToday, formatDate, toISODate, uid } from '@/lib/dates';
+import { notifyUsers } from '@/lib/notify-client';
 import { upsertTaskWithCascade } from '@/lib/tasks';
 import type { Priority, Task } from '@/lib/types';
 
@@ -70,8 +71,9 @@ export default function TasksPage() {
     return list.sort((a, b) => Number(a.done) - Number(b.done) || a.due.localeCompare(b.due));
   }, [data.tasks, q, priority, status, assigneeFilter]);
 
-  function save(e: React.FormEvent) {
+  async function save(e: React.FormEvent) {
     e.preventDefault();
+    const prev = data.tasks.find((t) => t.id === form.id);
     const assignee = users.find((u) => u.id === form.assigneeId);
     const next: Task = {
       ...form,
@@ -86,6 +88,18 @@ export default function TasksPage() {
       ...d,
       tasks: upsertTaskWithCascade(d.tasks, next)
     }));
+
+    // SMS when newly assigned or reassigned to an open task
+    const assigneeChanged = next.assigneeId && next.assigneeId !== prev?.assigneeId;
+    if (assigneeChanged && !next.done && next.assigneeId) {
+      void notifyUsers({
+        userIds: [next.assigneeId],
+        type: 'task',
+        title: next.title,
+        message: `You were assigned a task (due ${next.due}, ${next.priority} priority). Open the Project Hub to review.`
+      });
+    }
+
     setModal(null);
   }
 

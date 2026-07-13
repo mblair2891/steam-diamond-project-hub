@@ -1,9 +1,16 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import Modal from '@/components/Modal';
+import MediaPreview from '@/components/MediaPreview';
+import UploadProgress from '@/components/UploadProgress';
 import { useProject } from '@/components/ProjectProvider';
+import { useAssignableUsers } from '@/hooks/useAssignableUsers';
 import { useRole } from '@/hooks/useRole';
+import { uploadToBlob } from '@/lib/blob-upload';
 import { formatDate, uid } from '@/lib/dates';
+import { notifyUsers } from '@/lib/notify-client';
+import { mediaAssetUrl, type MediaAsset, type MediaDraftStatus } from '@/lib/types';
 
 function formatBytes(n: number) {
   if (!n && n !== 0) return '—';
@@ -12,56 +19,181 @@ function formatBytes(n: number) {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
+function statusBadge(status?: MediaDraftStatus) {
+  const s = status || 'draft';
+  if (s === 'published' || s === 'approved') return 'badge-approved';
+  if (s === 'in-review') return 'badge-review';
+  if (s === 'scheduled') return 'badge-pending';
+  return 'badge-low';
+}
+
+type UploadItem = {
+  id: string;
+  name: string;
+  mime: string;
+  progress: number;
+  previewUrl: string | null;
+  error?: string;
+};
+
+const emptyAsset = (): MediaAsset => ({
+  id: '',
+  name: '',
+  mime: '',
+  size: 0,
+  fileUrl: '',
+  notes: '',
+  title: '',
+  description: '',
+  scheduledDate: '',
+  status: 'draft',
+  addedAt: new Date().toISOString(),
+  assigneeId: null,
+  assigneeName: null
+});
+
 export default function MediaPage() {
   const { data, setData } = useProject();
   const { canEdit } = useRole();
+  const { users } = useAssignableUsers();
   const [filter, setFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState('');
+  const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [modal, setModal] = useState<'edit' | null>(null);
+  const [form, setForm] = useState<MediaAsset>(emptyAsset());
+  const [savingMeta, setSavingMeta] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const assets = useMemo(() => {
     let list = [...data.mediaAssets].reverse();
     if (filter) {
       const q = filter.toLowerCase();
       list = list.filter(
-        (a) => a.name.toLowerCase().includes(q) || (a.notes || '').toLowerCase().includes(q)
+        (a) =>
+          a.name.toLowerCase().includes(q) ||
+          (a.title || '').toLowerCase().includes(q) ||
+          (a.notes || '').toLowerCase().includes(q) ||
+          (a.description || '').toLowerCase().includes(q)
       );
     }
+    if (statusFilter !== 'all') {
+      list = list.filter((a) => (a.status || 'draft') === statusFilter);
+    }
     return list;
-  }, [data.mediaAssets, filter]);
+  }, [data.mediaAssets, filter, statusFilter]);
 
-  function handleFiles(fileList: FileList | null) {
+  async function handleFiles(fileList: FileList | null) {
     if (!canEdit || !fileList) return;
     setError('');
     const files = Array.from(fileList);
-    const max = 2.5 * 1024 * 1024;
+    const max = 100 * 1024 * 1024;
 
-    files.forEach((file) => {
+    for (const file of files) {
       if (file.size > max) {
-        setError(`${file.name} too large (max ~2.5MB for local storage)`);
-        return;
+        setError(`${file.name} is too large (max 100MB)`);
+        continue;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
+
+      const uploadId = uid('up');
+      const localPreview = URL.createObjectURL(file);
+      setUploads((u) => [
+        ...u,
+        {
+          id: uploadId,
+          name: file.name,
+          mime: file.type,
+          progress: 0,
+          previewUrl: localPreview
+        }
+      ]);
+
+      try {
+        const result = await uploadToBlob({
+          file,
+          folder: 'media',
+          onProgress: (pct) => {
+            setUploads((list) =>
+              list.map((item) => (item.id === uploadId ? { ...item, progress: pct } : item))
+            );
+          }
+        });
+
+        const asset: MediaAsset = {
+          id: uid('ma'),
+          name: result.name,
+          mime: result.contentType,
+          size: result.size,
+          fileUrl: result.url,
+          notes: '',
+          title: result.name.replace(/\.[^.]+$/, ''),
+          description: '',
+          scheduledDate: '',
+          status: 'draft',
+          addedAt: new Date().toISOString(),
+          assigneeId: null,
+          assigneeName: null
+        };
+
         setData((d) => ({
           ...d,
-          mediaAssets: [
-            ...d.mediaAssets,
-            {
-              id: uid('ma'),
-              name: file.name,
-              mime: file.type,
-              size: file.size,
-              dataUrl: String(reader.result || ''),
-              notes: '',
-              addedAt: new Date().toISOString()
-            }
-          ]
+          mediaAssets: [...d.mediaAssets, asset]
         }));
-      };
-      reader.onerror = () => setError(`Failed to read ${file.name}`);
-      reader.readAsDataURL(file);
-    });
+
+        setUploads((list) => list.filter((item) => item.id !== uploadId));
+        URL.revokeObjectURL(localPreview);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Upload failed';
+        setUploads((list) =>
+          list.map((item) =>
+            item.id === uploadId ? { ...item, error: msg, progress: 0 } : item
+          )
+        );
+        setError(msg);
+      }
+    }
+  }
+
+  async function saveMeta(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canEdit) return;
+    setSavingMeta(true);
+
+    const prev = data.mediaAssets.find((x) => x.id === form.id);
+    const assignee = users.find((u) => u.id === form.assigneeId);
+    const next: MediaAsset = {
+      ...form,
+      title: (form.title || form.name).trim(),
+      description: (form.description || form.notes || '').trim(),
+      notes: (form.description || form.notes || '').trim(),
+      status: form.status || 'draft',
+      assigneeId: form.assigneeId || null,
+      assigneeName: form.assigneeId ? assignee?.displayName || form.assigneeName || null : null
+    };
+
+    setData((d) => ({
+      ...d,
+      mediaAssets: d.mediaAssets.map((x) => (x.id === next.id ? next : x))
+    }));
+
+    const status = next.status || 'draft';
+    const enteredReview = status === 'in-review' && prev?.status !== 'in-review';
+    const assigneeChanged = Boolean(next.assigneeId && next.assigneeId !== prev?.assigneeId);
+    const needsNotify =
+      Boolean(next.assigneeId) && (enteredReview || (assigneeChanged && status === 'in-review'));
+
+    if (needsNotify && next.assigneeId) {
+      await notifyUsers({
+        userIds: [next.assigneeId],
+        type: 'media',
+        title: next.title || next.name,
+        message: `Media asset needs your attention (${status}). Review it in the Project Hub.`
+      });
+    }
+
+    setSavingMeta(false);
+    setModal(null);
   }
 
   return (
@@ -69,14 +201,14 @@ export default function MediaPage() {
       <div>
         <h2 className="section-title">Media Library</h2>
         <p className="ml-3 mt-1 text-sm text-ink-muted">
-          Drag & drop uploads with previews (stored locally in this browser)
+          Upload videos & images to Vercel Blob · track drafts and review status
         </p>
       </div>
 
       {canEdit && (
         <div
           className={`dropzone ${drag ? 'dropzone-active' : ''}`}
-          onClick={() => document.getElementById('file-input')?.click()}
+          onClick={() => fileInputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
             setDrag(true);
@@ -85,23 +217,40 @@ export default function MediaPage() {
           onDrop={(e) => {
             e.preventDefault();
             setDrag(false);
-            handleFiles(e.dataTransfer.files);
+            void handleFiles(e.dataTransfer.files);
           }}
         >
           <div className="mb-2 text-3xl opacity-60">⇪</div>
           <p className="text-sm font-semibold text-amber-300">Drag & drop files here</p>
-          <p className="mt-1 text-xs text-ink-dim">or click to browse</p>
+          <p className="mt-1 text-xs text-ink-dim">
+            Images & videos up to 100MB · stored in Vercel Blob
+          </p>
           <input
-            id="file-input"
+            ref={fileInputRef}
             type="file"
             className="hidden"
             multiple
             accept="image/*,video/*,.pdf,.doc,.docx"
             onChange={(e) => {
-              handleFiles(e.target.files);
+              void handleFiles(e.target.files);
               e.target.value = '';
             }}
           />
+        </div>
+      )}
+
+      {uploads.length > 0 && (
+        <div className="space-y-2">
+          {uploads.map((u) => (
+            <div key={u.id}>
+              <UploadProgress
+                label={u.error ? `${u.name} — ${u.error}` : u.name}
+                progress={u.error ? 0 : u.progress}
+                previewUrl={u.previewUrl}
+                mime={u.mime}
+              />
+            </div>
+          ))}
         </div>
       )}
 
@@ -111,7 +260,7 @@ export default function MediaPage() {
         </div>
       )}
 
-      <div className="panel p-3">
+      <div className="panel grid gap-2 p-3 sm:grid-cols-2">
         <input
           type="search"
           className="input"
@@ -119,6 +268,18 @@ export default function MediaPage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
+        <select
+          className="input"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="all">All statuses</option>
+          <option value="draft">draft</option>
+          <option value="scheduled">scheduled</option>
+          <option value="in-review">in-review</option>
+          <option value="approved">approved</option>
+          <option value="published">published</option>
+        </select>
       </div>
 
       <div className="overflow-hidden panel">
@@ -126,49 +287,75 @@ export default function MediaPage() {
           <div className="empty-state">No media assets yet</div>
         ) : (
           assets.map((a) => {
-            const isImg = (a.mime || '').startsWith('image/');
+            const url = mediaAssetUrl(a);
             return (
-              <div key={a.id} className="data-row grid grid-cols-[auto_1fr_auto] items-center gap-3">
-                {isImg && a.dataUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={a.dataUrl}
-                    alt=""
-                    className="h-14 w-14 rounded-lg border border-surface-600 object-cover"
-                  />
-                ) : (
-                  <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-surface-600 bg-surface-950 text-lg">
-                    {(a.mime || '').startsWith('video/') ? '▶' : '📄'}
-                  </div>
-                )}
+              <div
+                key={a.id}
+                className="data-row grid grid-cols-[auto_1fr_auto] items-center gap-3"
+              >
+                <MediaPreview url={url} mime={a.mime} name={a.name} />
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{a.name}</div>
-                  <div className="mt-0.5 text-[11px] text-ink-dim">
-                    {a.mime || 'file'} · {formatBytes(a.size)} ·{' '}
-                    {formatDate(a.addedAt?.slice(0, 10) || '')}
+                  <div className="truncate text-sm font-medium">{a.title || a.name}</div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-dim">
+                    <span className={`badge ${statusBadge(a.status)}`}>{a.status || 'draft'}</span>
+                    <span>
+                      {a.mime || 'file'} · {formatBytes(a.size)}
+                    </span>
+                    <span>· {formatDate(a.addedAt?.slice(0, 10) || '')}</span>
+                    {a.scheduledDate && <span>· Sched {formatDate(a.scheduledDate)}</span>}
+                    {a.assigneeName && <span className="badge badge-role">{a.assigneeName}</span>}
+                    {a.fileUrl && (
+                      <span className="text-emerald-400/80">Cloud</span>
+                    )}
+                    {!a.fileUrl && a.dataUrl && (
+                      <span className="text-amber-300/70">Local only</span>
+                    )}
                   </div>
+                  {(a.description || a.notes) && (
+                    <p className="mt-1 line-clamp-1 text-xs text-ink-dim">
+                      {a.description || a.notes}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-1">
-                  {a.dataUrl && (
-                    <a className="btn-ghost btn-sm" href={a.dataUrl} download={a.name}>
+                  {url && (
+                    <a
+                      className="btn-ghost btn-sm"
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      download={a.name}
+                    >
                       ↓
                     </a>
                   )}
                   {canEdit && (
-                    <button
-                      type="button"
-                      className="btn-danger"
-                      onClick={() => {
-                        if (confirm('Remove this asset?')) {
-                          setData((d) => ({
-                            ...d,
-                            mediaAssets: d.mediaAssets.filter((x) => x.id !== a.id)
-                          }));
-                        }
-                      }}
-                    >
-                      Del
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => {
+                          setForm({ ...emptyAsset(), ...a });
+                          setModal('edit');
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-danger"
+                        onClick={() => {
+                          if (confirm('Remove this asset?')) {
+                            setData((d) => ({
+                              ...d,
+                              mediaAssets: d.mediaAssets.filter((x) => x.id !== a.id)
+                            }));
+                          }
+                        }}
+                      >
+                        Del
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -176,6 +363,100 @@ export default function MediaPage() {
           })
         )}
       </div>
+
+      <Modal open={modal === 'edit'} title="Edit media asset" onClose={() => setModal(null)}>
+        <form onSubmit={saveMeta} className="space-y-3">
+          <div>
+            <label className="label">Title</label>
+            <input
+              className="input"
+              required
+              value={form.title || form.name}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="label">Description</label>
+            <textarea
+              className="input min-h-[5rem]"
+              value={form.description || form.notes || ''}
+              onChange={(e) =>
+                setForm({ ...form, description: e.target.value, notes: e.target.value })
+              }
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Scheduled date</label>
+              <input
+                type="date"
+                className="input"
+                value={form.scheduledDate || ''}
+                onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">Status</label>
+              <select
+                className="input"
+                value={form.status || 'draft'}
+                onChange={(e) =>
+                  setForm({ ...form, status: e.target.value as MediaDraftStatus })
+                }
+              >
+                <option value="draft">draft</option>
+                <option value="scheduled">scheduled</option>
+                <option value="in-review">in-review</option>
+                <option value="approved">approved</option>
+                <option value="published">published</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label">Assign reviewer</label>
+            <select
+              className="input"
+              value={form.assigneeId || ''}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                const u = users.find((x) => x.id === id);
+                setForm({
+                  ...form,
+                  assigneeId: id,
+                  assigneeName: u?.displayName || null
+                });
+              }}
+            >
+              <option value="">Unassigned</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.displayName}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-ink-dim">
+              In-review items notify the assignee by SMS when Twilio is configured.
+            </p>
+          </div>
+          {mediaAssetUrl(form) && (
+            <div className="panel-inset p-3">
+              <p className="mb-2 text-xs font-semibold text-ink-muted">Preview</p>
+              <MediaPreview
+                url={mediaAssetUrl(form)}
+                mime={form.mime}
+                name={form.name}
+                className="h-32 w-full max-w-xs"
+              />
+              {form.fileUrl && (
+                <p className="mt-2 break-all text-[10px] text-ink-dim">{form.fileUrl}</p>
+              )}
+            </div>
+          )}
+          <button type="submit" className="btn-primary w-full" disabled={savingMeta}>
+            {savingMeta ? 'Saving…' : 'Save metadata'}
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 }

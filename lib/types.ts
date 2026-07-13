@@ -1,6 +1,7 @@
 export type Priority = 'High' | 'Medium' | 'Low';
 export type ApprovalStatus = 'pending' | 'review' | 'approved' | 'rejected';
-export type MediaEventType = 'post' | 'video' | 'announcement' | 'event';
+export type MediaEventType = 'post' | 'video' | 'announcement' | 'event' | 'image';
+export type MediaDraftStatus = 'draft' | 'scheduled' | 'in-review' | 'approved' | 'published';
 export type ShotStatus = 'planned' | 'filmed' | 'cut' | 'killed';
 export type PhaseType = 'phase' | 'milestone';
 
@@ -42,10 +43,21 @@ export interface Task {
 export interface MediaEvent {
   id: string;
   title: string;
+  /** Scheduled publish / post date (YYYY-MM-DD) */
   date: string;
   type: MediaEventType;
   channel: string;
+  /** Description / caption body */
   notes: string;
+  /** Draft workflow status */
+  status?: MediaDraftStatus;
+  /** Cloud file URL (Vercel Blob) */
+  fileUrl?: string | null;
+  fileName?: string | null;
+  mime?: string | null;
+  size?: number | null;
+  assigneeId?: string | null;
+  assigneeName?: string | null;
 }
 
 export interface MediaAsset {
@@ -53,9 +65,21 @@ export interface MediaAsset {
   name: string;
   mime: string;
   size: number;
-  dataUrl: string;
+  /**
+   * Legacy local data URL. Prefer `fileUrl` (Vercel Blob).
+   * Kept for backwards compatibility with older localStorage data.
+   */
+  dataUrl?: string;
+  /** Cloud storage URL (Vercel Blob) */
+  fileUrl?: string;
   notes: string;
+  title?: string;
+  description?: string;
+  scheduledDate?: string;
+  status?: MediaDraftStatus;
   addedAt: string;
+  assigneeId?: string | null;
+  assigneeName?: string | null;
 }
 
 export interface Approval {
@@ -65,6 +89,8 @@ export interface Approval {
   status: ApprovalStatus;
   notes: string;
   updatedAt: string;
+  assigneeId?: string | null;
+  assigneeName?: string | null;
 }
 
 export interface FilmDay {
@@ -110,4 +136,13 @@ export interface AssignableUser {
   displayName: string;
   phone: string | null;
   email: string | null;
+}
+
+/** Best preview URL for a media asset (cloud first, then legacy data URL). */
+export function mediaAssetUrl(a: Pick<MediaAsset, 'fileUrl' | 'dataUrl'>): string {
+  return a.fileUrl || a.dataUrl || '';
+}
+
+export function mediaEventFileUrl(e: Pick<MediaEvent, 'fileUrl'>): string {
+  return e.fileUrl || '';
 }
