@@ -1,13 +1,15 @@
-import { get } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { createSignedGetUrl } from '@/lib/blob-sign';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
 
 /**
- * Stream a private Vercel Blob for authenticated hub users.
- * Query: ?pathname=media/…  OR  ?url=https://….blob.vercel-storage.com/…
+ * Redirect to a short-lived signed GET URL for a private blob.
+ * Prefer /api/media/signed-url for JSON; this keeps old /api/media/file links working.
+ *
+ * Query: ?pathname=media/…  OR  ?url=https://….private.blob.vercel-storage.com/…
  */
 export async function GET(request: Request) {
   const { userId } = await auth();
@@ -34,44 +36,21 @@ export async function GET(request: Request) {
     );
   }
 
-  // Basic path traversal guard for pathname form
   if (pathname && (pathname.includes('..') || pathname.startsWith('/'))) {
     return NextResponse.json({ error: 'Invalid pathname.' }, { status: 400 });
   }
 
   try {
-    const result = await get(target, {
-      access: 'private',
-      token: process.env.BLOB_READ_WRITE_TOKEN
-    });
-
-    if (!result || result.statusCode === 304 || !result.stream) {
-      return NextResponse.json({ error: 'File not found.' }, { status: 404 });
-    }
-
-    const headers = new Headers();
-    const contentType =
-      result.blob.contentType ||
-      result.headers.get('content-type') ||
-      'application/octet-stream';
-    headers.set('Content-Type', contentType);
-    headers.set('Cache-Control', 'private, max-age=3600');
-    if (result.blob.size != null) {
-      headers.set('Content-Length', String(result.blob.size));
-    }
-    const disposition =
-      result.blob.contentDisposition || result.headers.get('content-disposition');
-    if (disposition) {
-      headers.set('Content-Disposition', disposition);
-    }
-
-    return new NextResponse(result.stream, {
-      status: 200,
-      headers
+    const { signedUrl } = await createSignedGetUrl(target);
+    return NextResponse.redirect(signedUrl, {
+      status: 302,
+      headers: {
+        'Cache-Control': 'private, no-store'
+      }
     });
   } catch (err) {
     console.error('[api/media/file]', err);
-    const raw = err instanceof Error ? err.message : 'Failed to load file';
+    const raw = err instanceof Error ? err.message : 'Failed to sign file URL';
     return NextResponse.json({ error: raw }, { status: 500 });
   }
 }

@@ -197,9 +197,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Private blobs cannot be loaded via raw URL in <img>/<video>; clients use this proxy path.
-    const viewUrl = `/api/media/file?pathname=${encodeURIComponent(blob.pathname)}`;
-
+    // Clients mint short-lived signed GET URLs via /api/media/signed-url (Clerk-auth only).
     return NextResponse.json(
       {
         ok: true,
@@ -209,8 +207,7 @@ export async function POST(request: Request) {
         contentType: blob.contentType || contentType,
         size: file.size,
         name: file.name,
-        downloadUrl: blob.downloadUrl || blob.url,
-        viewUrl
+        downloadUrl: blob.downloadUrl || blob.url
       },
       {
         headers: {

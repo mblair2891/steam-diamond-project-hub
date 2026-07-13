@@ -202,11 +202,6 @@ function uploadOnce(
       }
 
       const pathname = data.pathname || '';
-      const viewUrl =
-        data.viewUrl ||
-        (pathname
-          ? `/api/media/file?pathname=${encodeURIComponent(pathname)}`
-          : `/api/media/file?url=${encodeURIComponent(data.url)}`);
 
       succeed({
         url: data.url,
@@ -215,7 +210,6 @@ function uploadOnce(
         size: typeof data.size === 'number' ? data.size : file.size,
         name: data.name || file.name,
         downloadUrl: data.downloadUrl || data.url,
-        viewUrl,
         access: data.access || 'private'
       });
     };

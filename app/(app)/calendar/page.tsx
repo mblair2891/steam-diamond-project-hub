@@ -15,7 +15,6 @@ import { notifyUsers } from '@/lib/notify-client';
 import { exportCalendarCSV } from '@/lib/storage';
 import {
   mediaEventFileUrl,
-  privateBlobViewUrl,
   type MediaDraftStatus,
   type MediaEvent,
   type MediaEventType
@@ -296,7 +295,8 @@ export default function CalendarPage() {
     }
   }
 
-  const previewUrl = localPreview || privateBlobViewUrl(form.fileUrl) || null;
+  // Prefer local blob: preview while uploading; otherwise raw fileUrl (MediaPreview signs it)
+  const previewSource = localPreview || form.fileUrl || null;
   const showProgress =
     attachPhase !== null &&
     attachPhase !== 'complete' &&
@@ -635,20 +635,22 @@ export default function CalendarPage() {
                 </div>
               )}
 
-              {previewUrl && (attachPhase === 'complete' || attachPhase === null) && form.fileUrl && (
+              {previewSource &&
+                (attachPhase === 'complete' || attachPhase === null) &&
+                form.fileUrl && (
                 <div className="mt-2 panel-inset p-3">
                   <p className="mb-2 text-xs font-semibold text-emerald-300">
                     Uploaded successfully
                   </p>
                   <MediaPreview
-                    url={previewUrl}
+                    url={localPreview || form.fileUrl}
                     mime={form.mime}
                     name={form.fileName || form.title}
                     className="h-36 w-full max-w-sm"
                   />
-                  {form.fileUrl && (
-                    <p className="mt-2 break-all text-[10px] text-ink-dim">{form.fileUrl}</p>
-                  )}
+                  <p className="mt-2 break-all text-[10px] text-ink-dim">
+                    Private blob · previews use short-lived signed URLs
+                  </p>
                   <button
                     type="button"
                     className="btn-ghost btn-sm mt-2"

@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import Modal from '@/components/Modal';
 import MediaPreview from '@/components/MediaPreview';
+import SignedMediaLink from '@/components/SignedMediaLink';
 import { useProject } from '@/components/ProjectProvider';
 import { useToast } from '@/components/ToastProvider';
 import { useUploadManager } from '@/components/UploadManager';
@@ -261,16 +262,7 @@ export default function MediaPage() {
                   )}
                 </div>
                 <div className="flex gap-1">
-                  {url && (
-                    <a
-                      className="btn-ghost btn-sm"
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open
-                    </a>
-                  )}
+                  {url && <SignedMediaLink url={url} name={a.name} />}
                   {canEdit && (
                     <>
                       <button

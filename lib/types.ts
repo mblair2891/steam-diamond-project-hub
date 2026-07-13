@@ -139,38 +139,21 @@ export interface AssignableUser {
 }
 
 /**
- * Convert a private Blob URL/pathname into an authenticated app proxy URL
- * so <img>/<video> can load files from a private store.
+ * Raw storage reference for a private blob (pathname or full blob URL).
+ * Pass this into MediaPreview / useSignedMediaUrl — they mint signed GET URLs
+ * server-side so private store files can be viewed by signed-in users.
  */
 export function privateBlobViewUrl(fileUrlOrPath?: string | null): string {
   if (!fileUrlOrPath) return '';
-  const v = fileUrlOrPath.trim();
-  if (!v) return '';
-  // Already a local preview or proxy
-  if (
-    v.startsWith('data:') ||
-    v.startsWith('blob:') ||
-    v.startsWith('/api/media/file')
-  ) {
-    return v;
-  }
-  // Pathname form: media/… or blitz/…
-  if (/^(media|blitz|uploads)\//i.test(v) && !v.includes('://')) {
-    return `/api/media/file?pathname=${encodeURIComponent(v)}`;
-  }
-  // Full private (or any) Vercel Blob URL
-  if (v.includes('blob.vercel-storage.com') || v.includes('vercel-storage.com')) {
-    return `/api/media/file?url=${encodeURIComponent(v)}`;
-  }
-  return v;
+  return fileUrlOrPath.trim();
 }
 
-/** Best preview URL for a media asset (cloud first, then legacy data URL). */
+/** Best media reference for an asset (cloud first, then legacy data URL). */
 export function mediaAssetUrl(a: Pick<MediaAsset, 'fileUrl' | 'dataUrl'>): string {
-  if (a.dataUrl && !a.fileUrl) return a.dataUrl;
-  return privateBlobViewUrl(a.fileUrl) || a.dataUrl || '';
+  if (a.fileUrl) return a.fileUrl;
+  return a.dataUrl || '';
 }
 
 export function mediaEventFileUrl(e: Pick<MediaEvent, 'fileUrl'>): string {
-  return privateBlobViewUrl(e.fileUrl);
+  return e.fileUrl || '';
 }

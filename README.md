@@ -105,7 +105,7 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 2. Copy `BLOB_READ_WRITE_TOKEN` into `.env.local` and Vercel project env  
 3. Uploads go **browser → `POST /api/media/upload` → server `put({ access: 'private' })`**  
 4. Success is shown only after the server returns a confirmed Blob URL  
-5. Previews use **`GET /api/media/file`** (auth required) because the store is **private**  
+5. Previews use **signed GET URLs** (`issueSignedToken` + `presignUrl`) via **`GET /api/media/signed-url`** — Clerk session required; URLs expire (~55 min)  
 6. Metadata stays in project data; **file bytes live in private Blob**  
 
 ### Upload flow
