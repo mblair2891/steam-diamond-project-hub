@@ -47,7 +47,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       }
       setDataState((prev) => {
         if (!prev) return prev;
-        return typeof updater === 'function' ? updater(prev) : updater;
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        // Persist immediately so media metadata survives navigation mid-upload
+        try {
+          saveProject(next);
+        } catch (err) {
+          console.error('[SDH] Failed to save project', err);
+        }
+        return next;
       });
     },
     [user]

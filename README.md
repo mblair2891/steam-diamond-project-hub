@@ -106,7 +106,10 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 3. Uploads use the client `upload()` helper → `/api/blob/upload`  
 4. Metadata (title, description, status, schedule, assignee) stays in project data; **file bytes live in Blob**  
 
-Max file size: **100MB**. Progress bars and image/video previews are shown during upload.
+Max file size: **100MB**. Uploads use multipart for files ≥4MB, report clear phases
+(**Uploading → Processing → Uploaded successfully**), and continue in a global panel if you
+navigate away. Metadata is written only after the Blob URL is returned, and project data is
+saved to `localStorage` immediately so library assets do not disappear mid-route.
 
 ---
 

@@ -3,12 +3,12 @@
 import { useMemo, useRef, useState } from 'react';
 import Modal from '@/components/Modal';
 import MediaPreview from '@/components/MediaPreview';
-import UploadProgress from '@/components/UploadProgress';
 import { useProject } from '@/components/ProjectProvider';
+import { useToast } from '@/components/ToastProvider';
+import { useUploadManager } from '@/components/UploadManager';
 import { useAssignableUsers } from '@/hooks/useAssignableUsers';
 import { useRole } from '@/hooks/useRole';
-import { uploadToBlob } from '@/lib/blob-upload';
-import { formatDate, uid } from '@/lib/dates';
+import { formatDate } from '@/lib/dates';
 import { notifyUsers } from '@/lib/notify-client';
 import { mediaAssetUrl, type MediaAsset, type MediaDraftStatus } from '@/lib/types';
 
@@ -26,15 +26,6 @@ function statusBadge(status?: MediaDraftStatus) {
   if (s === 'scheduled') return 'badge-pending';
   return 'badge-low';
 }
-
-type UploadItem = {
-  id: string;
-  name: string;
-  mime: string;
-  progress: number;
-  previewUrl: string | null;
-  error?: string;
-};
 
 const emptyAsset = (): MediaAsset => ({
   id: '',
@@ -56,11 +47,11 @@ export default function MediaPage() {
   const { data, setData } = useProject();
   const { canEdit } = useRole();
   const { users } = useAssignableUsers();
+  const { startUpload, activeCount } = useUploadManager();
+  const { success, error: toastError } = useToast();
   const [filter, setFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [drag, setDrag] = useState(false);
-  const [error, setError] = useState('');
-  const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [modal, setModal] = useState<'edit' | null>(null);
   const [form, setForm] = useState<MediaAsset>(emptyAsset());
   const [savingMeta, setSavingMeta] = useState(false);
@@ -84,74 +75,28 @@ export default function MediaPage() {
     return list;
   }, [data.mediaAssets, filter, statusFilter]);
 
-  async function handleFiles(fileList: FileList | null) {
+  function handleFiles(fileList: FileList | null) {
     if (!canEdit || !fileList) return;
-    setError('');
     const files = Array.from(fileList);
-    const max = 100 * 1024 * 1024;
+    if (files.length === 0) return;
 
+    let started = 0;
     for (const file of files) {
-      if (file.size > max) {
-        setError(`${file.name} is too large (max 100MB)`);
-        continue;
-      }
-
-      const uploadId = uid('up');
-      const localPreview = URL.createObjectURL(file);
-      setUploads((u) => [
-        ...u,
-        {
-          id: uploadId,
-          name: file.name,
-          mime: file.type,
-          progress: 0,
-          previewUrl: localPreview
-        }
-      ]);
-
       try {
-        const result = await uploadToBlob({
+        startUpload({
           file,
           folder: 'media',
-          onProgress: (pct) => {
-            setUploads((list) =>
-              list.map((item) => (item.id === uploadId ? { ...item, progress: pct } : item))
-            );
-          }
+          kind: 'library'
+          // Metadata is saved by UploadManager after Blob completes
         });
-
-        const asset: MediaAsset = {
-          id: uid('ma'),
-          name: result.name,
-          mime: result.contentType,
-          size: result.size,
-          fileUrl: result.url,
-          notes: '',
-          title: result.name.replace(/\.[^.]+$/, ''),
-          description: '',
-          scheduledDate: '',
-          status: 'draft',
-          addedAt: new Date().toISOString(),
-          assigneeId: null,
-          assigneeName: null
-        };
-
-        setData((d) => ({
-          ...d,
-          mediaAssets: [...d.mediaAssets, asset]
-        }));
-
-        setUploads((list) => list.filter((item) => item.id !== uploadId));
-        URL.revokeObjectURL(localPreview);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Upload failed';
-        setUploads((list) =>
-          list.map((item) =>
-            item.id === uploadId ? { ...item, error: msg, progress: 0 } : item
-          )
-        );
-        setError(msg);
+        started++;
+      } catch {
+        // startUpload already toasts validation errors
       }
+    }
+
+    if (started > 0) {
+      // Progress lives in GlobalUploadPanel — safe to leave this page
     }
   }
 
@@ -160,40 +105,52 @@ export default function MediaPage() {
     if (!canEdit) return;
     setSavingMeta(true);
 
-    const prev = data.mediaAssets.find((x) => x.id === form.id);
-    const assignee = users.find((u) => u.id === form.assigneeId);
-    const next: MediaAsset = {
-      ...form,
-      title: (form.title || form.name).trim(),
-      description: (form.description || form.notes || '').trim(),
-      notes: (form.description || form.notes || '').trim(),
-      status: form.status || 'draft',
-      assigneeId: form.assigneeId || null,
-      assigneeName: form.assigneeId ? assignee?.displayName || form.assigneeName || null : null
-    };
+    try {
+      const prev = data.mediaAssets.find((x) => x.id === form.id);
+      const assignee = users.find((u) => u.id === form.assigneeId);
+      const next: MediaAsset = {
+        ...form,
+        title: (form.title || form.name).trim(),
+        description: (form.description || form.notes || '').trim(),
+        notes: (form.description || form.notes || '').trim(),
+        status: form.status || 'draft',
+        assigneeId: form.assigneeId || null,
+        assigneeName: form.assigneeId ? assignee?.displayName || form.assigneeName || null : null
+      };
 
-    setData((d) => ({
-      ...d,
-      mediaAssets: d.mediaAssets.map((x) => (x.id === next.id ? next : x))
-    }));
+      if (!next.fileUrl && !next.dataUrl) {
+        toastError('Missing file', 'This asset has no cloud URL. Re-upload the file.');
+        setSavingMeta(false);
+        return;
+      }
 
-    const status = next.status || 'draft';
-    const enteredReview = status === 'in-review' && prev?.status !== 'in-review';
-    const assigneeChanged = Boolean(next.assigneeId && next.assigneeId !== prev?.assigneeId);
-    const needsNotify =
-      Boolean(next.assigneeId) && (enteredReview || (assigneeChanged && status === 'in-review'));
+      setData((d) => ({
+        ...d,
+        mediaAssets: d.mediaAssets.map((x) => (x.id === next.id ? next : x))
+      }));
 
-    if (needsNotify && next.assigneeId) {
-      await notifyUsers({
-        userIds: [next.assigneeId],
-        type: 'media',
-        title: next.title || next.name,
-        message: `Media asset needs your attention (${status}). Review it in the Project Hub.`
-      });
+      const status = next.status || 'draft';
+      const enteredReview = status === 'in-review' && prev?.status !== 'in-review';
+      const assigneeChanged = Boolean(next.assigneeId && next.assigneeId !== prev?.assigneeId);
+      const needsNotify =
+        Boolean(next.assigneeId) && (enteredReview || (assigneeChanged && status === 'in-review'));
+
+      if (needsNotify && next.assigneeId) {
+        await notifyUsers({
+          userIds: [next.assigneeId],
+          type: 'media',
+          title: next.title || next.name,
+          message: `Media asset needs your attention (${status}). Review it in the Project Hub.`
+        });
+      }
+
+      success('Metadata saved', next.title || next.name);
+      setModal(null);
+    } catch (err) {
+      toastError('Save failed', err instanceof Error ? err.message : 'Could not save metadata');
+    } finally {
+      setSavingMeta(false);
     }
-
-    setSavingMeta(false);
-    setModal(null);
   }
 
   return (
@@ -201,7 +158,7 @@ export default function MediaPage() {
       <div>
         <h2 className="section-title">Media Library</h2>
         <p className="ml-3 mt-1 text-sm text-ink-muted">
-          Upload videos & images to Vercel Blob · track drafts and review status
+          Upload videos & images to Vercel Blob · progress continues if you leave this page
         </p>
       </div>
 
@@ -217,7 +174,7 @@ export default function MediaPage() {
           onDrop={(e) => {
             e.preventDefault();
             setDrag(false);
-            void handleFiles(e.dataTransfer.files);
+            handleFiles(e.dataTransfer.files);
           }}
         >
           <div className="mb-2 text-3xl opacity-60">⇪</div>
@@ -225,6 +182,11 @@ export default function MediaPage() {
           <p className="mt-1 text-xs text-ink-dim">
             Images & videos up to 100MB · stored in Vercel Blob
           </p>
+          {activeCount > 0 && (
+            <p className="mt-2 text-xs font-semibold text-sky-300">
+              {activeCount} upload{activeCount === 1 ? '' : 's'} in progress — see panel (bottom left)
+            </p>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -232,31 +194,10 @@ export default function MediaPage() {
             multiple
             accept="image/*,video/*,.pdf,.doc,.docx"
             onChange={(e) => {
-              void handleFiles(e.target.files);
+              handleFiles(e.target.files);
               e.target.value = '';
             }}
           />
-        </div>
-      )}
-
-      {uploads.length > 0 && (
-        <div className="space-y-2">
-          {uploads.map((u) => (
-            <div key={u.id}>
-              <UploadProgress
-                label={u.error ? `${u.name} — ${u.error}` : u.name}
-                progress={u.error ? 0 : u.progress}
-                previewUrl={u.previewUrl}
-                mime={u.mime}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-          {error}
         </div>
       )}
 
@@ -284,7 +225,11 @@ export default function MediaPage() {
 
       <div className="overflow-hidden panel">
         {assets.length === 0 ? (
-          <div className="empty-state">No media assets yet</div>
+          <div className="empty-state">
+            {activeCount > 0
+              ? 'Upload in progress — assets appear here when complete.'
+              : 'No media assets yet'}
+          </div>
         ) : (
           assets.map((a) => {
             const url = mediaAssetUrl(a);
@@ -304,9 +249,7 @@ export default function MediaPage() {
                     <span>· {formatDate(a.addedAt?.slice(0, 10) || '')}</span>
                     {a.scheduledDate && <span>· Sched {formatDate(a.scheduledDate)}</span>}
                     {a.assigneeName && <span className="badge badge-role">{a.assigneeName}</span>}
-                    {a.fileUrl && (
-                      <span className="text-emerald-400/80">Cloud</span>
-                    )}
+                    {a.fileUrl && <span className="text-emerald-400/80">Cloud</span>}
                     {!a.fileUrl && a.dataUrl && (
                       <span className="text-amber-300/70">Local only</span>
                     )}
@@ -324,9 +267,8 @@ export default function MediaPage() {
                       href={url}
                       target="_blank"
                       rel="noreferrer"
-                      download={a.name}
                     >
-                      ↓
+                      Open
                     </a>
                   )}
                   {canEdit && (
@@ -350,6 +292,7 @@ export default function MediaPage() {
                               ...d,
                               mediaAssets: d.mediaAssets.filter((x) => x.id !== a.id)
                             }));
+                            success('Asset removed', a.title || a.name);
                           }
                         }}
                       >
@@ -365,7 +308,7 @@ export default function MediaPage() {
       </div>
 
       <Modal open={modal === 'edit'} title="Edit media asset" onClose={() => setModal(null)}>
-        <form onSubmit={saveMeta} className="space-y-3">
+        <form onSubmit={(e) => void saveMeta(e)} className="space-y-3">
           <div>
             <label className="label">Title</label>
             <input
@@ -434,9 +377,6 @@ export default function MediaPage() {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[11px] text-ink-dim">
-              In-review items notify the assignee by SMS when Twilio is configured.
-            </p>
           </div>
           {mediaAssetUrl(form) && (
             <div className="panel-inset p-3">

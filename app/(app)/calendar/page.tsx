@@ -1,13 +1,15 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '@/components/Modal';
 import MediaPreview from '@/components/MediaPreview';
 import UploadProgress from '@/components/UploadProgress';
 import { useProject } from '@/components/ProjectProvider';
+import { useToast } from '@/components/ToastProvider';
+import { useUploadManager } from '@/components/UploadManager';
 import { useAssignableUsers } from '@/hooks/useAssignableUsers';
 import { useRole } from '@/hooks/useRole';
-import { uploadToBlob } from '@/lib/blob-upload';
+import type { UploadPhase } from '@/lib/blob-upload';
 import { downloadBlob, formatDate, parseLocalDate, toISODate, uid } from '@/lib/dates';
 import { notifyUsers } from '@/lib/notify-client';
 import { exportCalendarCSV } from '@/lib/storage';
@@ -43,16 +45,54 @@ export default function CalendarPage() {
   const { data, setData, getKeysDate } = useProject();
   const { canEdit } = useRole();
   const { users } = useAssignableUsers();
+  const { startUpload, jobs } = useUploadManager();
+  const { success, error: toastError, info } = useToast();
   const keys = parseLocalDate(getKeysDate());
   const [month, setMonth] = useState({ y: keys.getFullYear(), m: keys.getMonth() });
   const [modal, setModal] = useState<'new' | 'edit' | null>(null);
   const [form, setForm] = useState<MediaEvent>(emptyEvent());
-  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [attachJobId, setAttachJobId] = useState<string | null>(null);
+  const [attachPhase, setAttachPhase] = useState<UploadPhase | null>(null);
+  const [attachProgress, setAttachProgress] = useState(0);
+  const [attachError, setAttachError] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Always point callbacks at the latest form setters (survives re-renders) */
+  const formAliveRef = useRef(true);
+
+  useEffect(() => {
+    formAliveRef.current = true;
+    return () => {
+      formAliveRef.current = false;
+    };
+  }, []);
+
+  // Mirror active attach job into local UI state
+  useEffect(() => {
+    if (!attachJobId) return;
+    const job = jobs.find((j) => j.id === attachJobId);
+    if (!job) return;
+    setAttachPhase(job.phase);
+    setAttachProgress(job.progress);
+    if (job.error) setAttachError(job.error);
+    if (job.phase === 'complete' && job.result) {
+      setForm((f) => ({
+        ...f,
+        fileUrl: job.result!.url,
+        fileName: job.result!.name,
+        mime: job.result!.contentType,
+        size: job.result!.size,
+        type: job.result!.contentType.startsWith('video/')
+          ? 'video'
+          : job.result!.contentType.startsWith('image/') && f.type === 'post'
+            ? 'image'
+            : f.type
+      }));
+    }
+  }, [jobs, attachJobId]);
 
   const { y, m } = month;
   const first = new Date(y, m, 1);
@@ -92,11 +132,20 @@ export default function CalendarPage() {
     return items;
   }, [data.mediaEvents, filterStatus]);
 
+  function resetAttachUi() {
+    setAttachJobId(null);
+    setAttachPhase(null);
+    setAttachProgress(0);
+    setAttachError('');
+    if (localPreview) {
+      URL.revokeObjectURL(localPreview);
+      setLocalPreview(null);
+    }
+  }
+
   function openNew(date?: string) {
     setError('');
-    setUploadPct(null);
-    if (localPreview) URL.revokeObjectURL(localPreview);
-    setLocalPreview(null);
+    resetAttachUi();
     setForm({
       ...emptyEvent(),
       date: date || toISODate(new Date())
@@ -106,107 +155,146 @@ export default function CalendarPage() {
 
   function openEdit(e: MediaEvent) {
     setError('');
-    setUploadPct(null);
-    if (localPreview) URL.revokeObjectURL(localPreview);
-    setLocalPreview(null);
+    resetAttachUi();
     setForm({ ...emptyEvent(), ...e });
     setModal('edit');
   }
 
-  async function onPickFile(file: File | null) {
+  function onPickFile(file: File | null) {
     if (!file || !canEdit) return;
     setError('');
-    if (file.size > 100 * 1024 * 1024) {
-      setError('File too large (max 100MB)');
-      return;
-    }
+    setAttachError('');
 
     const preview = URL.createObjectURL(file);
     if (localPreview) URL.revokeObjectURL(localPreview);
     setLocalPreview(preview);
-    setUploadPct(0);
+    setAttachPhase('queued');
+    setAttachProgress(0);
 
     try {
-      const result = await uploadToBlob({
+      const jobId = startUpload({
         file,
         folder: 'blitz',
-        onProgress: (pct) => setUploadPct(pct)
+        kind: 'attach',
+        onComplete: (result) => {
+          // Apply even if modal re-rendered; formAlive not required for setForm if unmounted is noop-safe
+          setForm((f) => ({
+            ...f,
+            fileUrl: result.url,
+            fileName: result.name,
+            mime: result.contentType,
+            size: result.size,
+            type: result.contentType.startsWith('video/')
+              ? 'video'
+              : result.contentType.startsWith('image/') && f.type === 'post'
+                ? 'image'
+                : f.type
+          }));
+          setAttachPhase('complete');
+          setAttachProgress(100);
+          if (!formAliveRef.current) {
+            info(
+              'Media ready',
+              `${result.name} uploaded. Re-open your draft if the form was closed.`
+            );
+          }
+        },
+        onError: (err) => {
+          setAttachPhase('error');
+          setAttachError(err.message);
+          setAttachProgress(0);
+        }
       });
-
-      setForm((f) => ({
-        ...f,
-        fileUrl: result.url,
-        fileName: result.name,
-        mime: result.contentType,
-        size: result.size,
-        type:
-          result.contentType.startsWith('video/')
-            ? 'video'
-            : result.contentType.startsWith('image/') && f.type === 'post'
-              ? 'image'
-              : f.type
-      }));
-      setUploadPct(100);
+      setAttachJobId(jobId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed';
-      setError(msg);
-      setUploadPct(null);
+      setAttachPhase('error');
+      setAttachError(msg);
+      toastError('Upload failed', msg);
     }
   }
+
+  const uploading =
+    attachPhase === 'queued' ||
+    attachPhase === 'uploading' ||
+    attachPhase === 'processing';
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!canEdit) return;
+
+    if (uploading) {
+      setError('Please wait for the file upload to finish before saving.');
+      toastError('Still uploading', 'Wait until the file shows “Uploaded successfully”.');
+      return;
+    }
+
     setSaving(true);
     setError('');
 
-    const prev = data.mediaEvents.find((x) => x.id === form.id);
-    const assignee = users.find((u) => u.id === form.assigneeId);
-    const next: MediaEvent = {
-      ...form,
-      id: form.id || uid('me'),
-      title: form.title.trim(),
-      notes: form.notes.trim(),
-      status: form.status || 'draft',
-      assigneeId: form.assigneeId || null,
-      assigneeName: form.assigneeId
-        ? assignee?.displayName || form.assigneeName || null
-        : null
-    };
+    try {
+      const prev = data.mediaEvents.find((x) => x.id === form.id);
+      const assignee = users.find((u) => u.id === form.assigneeId);
+      const next: MediaEvent = {
+        ...form,
+        id: form.id || uid('me'),
+        title: form.title.trim(),
+        notes: form.notes.trim(),
+        status: form.status || 'draft',
+        // Ensure file fields from completed attach are included
+        fileUrl: form.fileUrl || null,
+        fileName: form.fileName || null,
+        mime: form.mime || null,
+        size: form.size ?? null,
+        assigneeId: form.assigneeId || null,
+        assigneeName: form.assigneeId
+          ? assignee?.displayName || form.assigneeName || null
+          : null
+      };
 
-    setData((d) => {
-      const idx = d.mediaEvents.findIndex((x) => x.id === next.id);
-      const mediaEvents = [...d.mediaEvents];
-      if (idx >= 0) mediaEvents[idx] = next;
-      else mediaEvents.push(next);
-      return { ...d, mediaEvents };
-    });
-
-    const status = next.status || 'draft';
-    const enteredReview = status === 'in-review' && prev?.status !== 'in-review';
-    const assigneeChanged = Boolean(next.assigneeId && next.assigneeId !== prev?.assigneeId);
-    const needsNotify =
-      Boolean(next.assigneeId) && (enteredReview || (assigneeChanged && status === 'in-review'));
-
-    if (needsNotify && next.assigneeId) {
-      await notifyUsers({
-        userIds: [next.assigneeId],
-        type: 'media',
-        title: next.title,
-        message: `Media blitz item (${status}) needs your review. Scheduled ${next.date}.`
+      setData((d) => {
+        const idx = d.mediaEvents.findIndex((x) => x.id === next.id);
+        const mediaEvents = [...d.mediaEvents];
+        if (idx >= 0) mediaEvents[idx] = next;
+        else mediaEvents.push(next);
+        return { ...d, mediaEvents };
       });
-    }
 
-    setSaving(false);
-    setModal(null);
-    if (localPreview) {
-      URL.revokeObjectURL(localPreview);
-      setLocalPreview(null);
+      const status = next.status || 'draft';
+      const enteredReview = status === 'in-review' && prev?.status !== 'in-review';
+      const assigneeChanged = Boolean(next.assigneeId && next.assigneeId !== prev?.assigneeId);
+      const needsNotify =
+        Boolean(next.assigneeId) && (enteredReview || (assigneeChanged && status === 'in-review'));
+
+      if (needsNotify && next.assigneeId) {
+        await notifyUsers({
+          userIds: [next.assigneeId],
+          type: 'media',
+          title: next.title,
+          message: `Media blitz item (${status}) needs your review. Scheduled ${next.date}.`
+        });
+      }
+
+      success(
+        modal === 'new' ? 'Draft saved' : 'Draft updated',
+        next.fileUrl ? `${next.title} · media attached` : next.title
+      );
+      setModal(null);
+      resetAttachUi();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not save draft';
+      setError(msg);
+      toastError('Save failed', msg);
+    } finally {
+      setSaving(false);
     }
-    setUploadPct(null);
   }
 
   const previewUrl = localPreview || form.fileUrl || null;
+  const showProgress =
+    attachPhase !== null &&
+    attachPhase !== 'complete' &&
+    !(attachPhase === 'error' && !attachError);
 
   return (
     <div className="space-y-5">
@@ -373,6 +461,7 @@ export default function CalendarPage() {
                           ...d,
                           mediaEvents: d.mediaEvents.filter((x) => x.id !== e.id)
                         }));
+                        success('Event deleted', e.title);
                       }
                     }}
                   >
@@ -389,15 +478,16 @@ export default function CalendarPage() {
         open={!!modal}
         title={modal === 'new' ? 'New media draft' : 'Edit media item'}
         onClose={() => {
-          setModal(null);
-          setUploadPct(null);
-          if (localPreview) {
-            URL.revokeObjectURL(localPreview);
-            setLocalPreview(null);
+          if (uploading) {
+            info(
+              'Upload continues in background',
+              'Progress stays visible in the bottom-left panel. Re-open the draft after it finishes to attach the file if needed.'
+            );
           }
+          setModal(null);
         }}
       >
-        <form onSubmit={save} className="space-y-3">
+        <form onSubmit={(e) => void save(e)} className="space-y-3">
           <div>
             <label className="label">Title</label>
             <input
@@ -497,13 +587,14 @@ export default function CalendarPage() {
             <div>
               <label className="label">Media file (image / video)</label>
               <div
-                className="dropzone !p-4"
-                onClick={() => fileRef.current?.click()}
+                className={`dropzone !p-4 ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+                onClick={() => !uploading && fileRef.current?.click()}
                 onDragOver={(ev) => ev.preventDefault()}
                 onDrop={(ev) => {
                   ev.preventDefault();
+                  if (uploading) return;
                   const f = ev.dataTransfer.files?.[0];
-                  if (f) void onPickFile(f);
+                  if (f) onPickFile(f);
                 }}
               >
                 <p className="text-sm font-semibold text-amber-300">
@@ -519,24 +610,30 @@ export default function CalendarPage() {
                   accept="image/*,video/*"
                   onChange={(ev) => {
                     const f = ev.target.files?.[0] || null;
-                    void onPickFile(f);
+                    onPickFile(f);
                     ev.target.value = '';
                   }}
                 />
               </div>
-              {uploadPct !== null && uploadPct < 100 && (
+
+              {(showProgress || attachPhase === 'error') && (
                 <div className="mt-2">
                   <UploadProgress
                     label={form.fileName || 'Uploading…'}
-                    progress={uploadPct}
+                    progress={attachProgress}
                     previewUrl={localPreview}
                     mime={form.mime}
+                    phase={attachPhase || 'uploading'}
+                    error={attachError}
                   />
                 </div>
               )}
-              {previewUrl && (uploadPct === null || uploadPct >= 100) && (
+
+              {previewUrl && (attachPhase === 'complete' || attachPhase === null) && form.fileUrl && (
                 <div className="mt-2 panel-inset p-3">
-                  <p className="mb-2 text-xs font-semibold text-ink-muted">Preview</p>
+                  <p className="mb-2 text-xs font-semibold text-emerald-300">
+                    Uploaded successfully
+                  </p>
                   <MediaPreview
                     url={previewUrl}
                     mime={form.mime}
@@ -546,27 +643,22 @@ export default function CalendarPage() {
                   {form.fileUrl && (
                     <p className="mt-2 break-all text-[10px] text-ink-dim">{form.fileUrl}</p>
                   )}
-                  {form.fileUrl && (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm mt-2"
-                      onClick={() => {
-                        setForm({
-                          ...form,
-                          fileUrl: null,
-                          fileName: null,
-                          mime: null,
-                          size: null
-                        });
-                        if (localPreview) {
-                          URL.revokeObjectURL(localPreview);
-                          setLocalPreview(null);
-                        }
-                      }}
-                    >
-                      Remove file
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm mt-2"
+                    onClick={() => {
+                      setForm({
+                        ...form,
+                        fileUrl: null,
+                        fileName: null,
+                        mime: null,
+                        size: null
+                      });
+                      resetAttachUi();
+                    }}
+                  >
+                    Remove file
+                  </button>
                 </div>
               )}
             </div>
@@ -578,12 +670,14 @@ export default function CalendarPage() {
             </div>
           )}
 
-          <button
-            type="submit"
-            className="btn-primary w-full"
-            disabled={saving || (uploadPct !== null && uploadPct < 100)}
-          >
-            {saving ? 'Saving…' : 'Save draft'}
+          <button type="submit" className="btn-primary w-full" disabled={saving || uploading}>
+            {uploading
+              ? attachPhase === 'processing'
+                ? 'Processing upload…'
+                : 'Uploading…'
+              : saving
+                ? 'Saving…'
+                : 'Save draft'}
           </button>
         </form>
       </Modal>
