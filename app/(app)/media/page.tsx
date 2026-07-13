@@ -47,7 +47,7 @@ const emptyAsset = (): MediaAsset => ({
 
 export default function MediaPage() {
   const { data, setData } = useProject();
-  const { canEdit } = useRole();
+  const { canEdit, isLoaded: roleLoaded } = useRole();
   const { users } = useAssignableUsers();
   const { startUpload, activeCount } = useUploadManager();
   const { success, error: toastError } = useToast();
@@ -59,6 +59,8 @@ export default function MediaPage() {
   const [form, setForm] = useState<MediaAsset>(emptyAsset());
   const [savingMeta, setSavingMeta] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Any signed-in user may preview / download / delete media
+  const canManageMedia = roleLoaded;
 
   const assets = useMemo(() => {
     let list = [...data.mediaAssets].reverse();
@@ -163,7 +165,8 @@ export default function MediaPage() {
       <div>
         <h2 className="section-title">Media Library</h2>
         <p className="ml-3 mt-1 text-sm text-ink-muted">
-          Private Blob storage · signed previews · download & delete for signed-in users
+          Private cloud storage · temporary signed URLs for preview &amp; download · delete with
+          confirmation
         </p>
       </div>
 
@@ -273,12 +276,12 @@ export default function MediaPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex flex-col items-stretch gap-1 sm:items-end">
+                <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
                   <MediaActions
                     fileUrl={cloudRef || ref}
                     name={a.name}
                     mime={a.mime}
-                    canDelete={canEdit}
+                    canDelete={canManageMedia && Boolean(cloudRef || ref)}
                     onPreview={() => setPreviewAsset(a)}
                     onDeleted={() => removeAssetFromLibrary(a.id)}
                   />
@@ -316,16 +319,18 @@ export default function MediaPage() {
               className="mx-auto h-auto max-h-[60vh] w-full max-w-full object-contain"
               controls
             />
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-surface-600 pt-3">
               <p className="text-xs text-ink-dim">
                 {previewAsset.mime} · {formatBytes(previewAsset.size)}
                 {previewAsset.pathname ? ` · ${previewAsset.pathname}` : ''}
               </p>
               <MediaActions
-                fileUrl={previewAsset.fileUrl || previewAsset.pathname || mediaAssetUrl(previewAsset)}
+                fileUrl={
+                  previewAsset.fileUrl || previewAsset.pathname || mediaAssetUrl(previewAsset)
+                }
                 name={previewAsset.name}
                 mime={previewAsset.mime}
-                canDelete={canEdit}
+                canDelete={canManageMedia}
                 onDeleted={() => {
                   removeAssetFromLibrary(previewAsset.id);
                   setPreviewAsset(null);

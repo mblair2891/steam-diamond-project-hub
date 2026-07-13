@@ -3,7 +3,8 @@
 import { useSignedMediaUrl } from '@/hooks/useSignedMediaUrl';
 
 /**
- * Link/button that opens a private blob via a short-lived signed URL.
+ * Link/button that opens a private blob via a short-lived signed URL
+ * (or authenticated stream fallback).
  */
 export default function SignedMediaLink({
   url,
@@ -16,7 +17,8 @@ export default function SignedMediaLink({
   className?: string;
   children?: React.ReactNode;
 }) {
-  const { url: signed, loading, error, refresh } = useSignedMediaUrl(url);
+  const { url: signed, streamUrl, loading, error, refresh, useStreamFallback } =
+    useSignedMediaUrl(url);
 
   if (!url) return null;
 
@@ -24,12 +26,15 @@ export default function SignedMediaLink({
     <button
       type="button"
       className={className}
-      disabled={loading || !signed}
+      disabled={loading || (!signed && !streamUrl)}
       title={error || name || 'Open'}
       onClick={() => {
-        if (signed) {
-          window.open(signed, '_blank', 'noopener,noreferrer');
+        const href = signed || streamUrl;
+        if (href) {
+          // Prefer same-origin stream in new tab if signed is cross-origin and fails
+          window.open(href, '_blank', 'noopener,noreferrer');
         } else {
+          useStreamFallback();
           refresh();
         }
       }}

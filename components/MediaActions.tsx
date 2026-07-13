@@ -6,18 +6,20 @@ import { useToast } from '@/components/ToastProvider';
 
 /**
  * Preview / Download / Delete controls for a private media file.
+ * Uses temporary signed URLs (with authenticated stream fallback).
  */
 export default function MediaActions({
   fileUrl,
   name,
   mime,
-  canDelete,
+  canDelete = true,
   onPreview,
   onDeleted
 }: {
   fileUrl?: string | null;
   name?: string;
   mime?: string;
+  /** Any signed-in user may delete by default */
   canDelete?: boolean;
   onPreview?: () => void;
   onDeleted?: () => void;
@@ -33,18 +35,34 @@ export default function MediaActions({
     setBusy('download');
     try {
       const access = await ensureAccess();
-      const href = access?.downloadUrl;
+      // Prefer same-origin stream for downloads (cookies + Content-Disposition)
+      // then signed download URL. Never use raw private hosts.
+      const href =
+        access?.streamDownloadUrl ||
+        access?.downloadUrl ||
+        access?.previewUrl;
       if (!href) throw new Error('Could not create download link.');
 
-      // Same-origin stream or signed URL — trigger download
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = name || 'download';
-      a.rel = 'noopener';
-      a.target = href.startsWith('/') ? '_self' : '_blank';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      if (href.startsWith('/')) {
+        // Same-origin: navigate so Content-Disposition: attachment applies
+        const a = document.createElement('a');
+        a.href = href;
+        a.download = name || 'download';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        // Signed CDN URL — open in new tab with download param
+        const a = document.createElement('a');
+        a.href = href;
+        a.download = name || 'download';
+        a.rel = 'noopener';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
       success('Download started', name || 'File');
     } catch (err) {
       toastError(
@@ -67,11 +85,18 @@ export default function MediaActions({
     }
     setBusy('delete');
     try {
+      const body: { url?: string; pathname?: string } = {};
+      if (fileUrl.includes('://') || fileUrl.startsWith('/api/media/')) {
+        body.url = fileUrl;
+      } else {
+        body.pathname = fileUrl;
+      }
+
       const res = await fetch('/api/media/delete', {
         method: 'DELETE',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: fileUrl })
+        body: JSON.stringify(body)
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
       if (!res.ok) {
@@ -89,13 +114,14 @@ export default function MediaActions({
   const disabled = loading || busy !== null;
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1.5">
       {onPreview && (
         <button
           type="button"
           className="btn-secondary btn-sm"
           disabled={disabled}
           onClick={() => onPreview()}
+          title={mime ? `Preview (${mime})` : 'Preview'}
         >
           Preview
         </button>
@@ -105,17 +131,19 @@ export default function MediaActions({
         className="btn-secondary btn-sm"
         disabled={disabled || !fileUrl}
         onClick={() => void handleDownload()}
+        title="Download file"
       >
-        {busy === 'download' ? '…' : 'Download'}
+        {busy === 'download' ? 'Downloading…' : 'Download'}
       </button>
       {canDelete && (
         <button
           type="button"
-          className="btn-danger"
-          disabled={disabled}
+          className="btn-danger btn-sm"
+          disabled={disabled || !fileUrl}
           onClick={() => void handleDelete()}
+          title="Delete permanently"
         >
-          {busy === 'delete' ? '…' : 'Delete'}
+          {busy === 'delete' ? 'Deleting…' : 'Delete'}
         </button>
       )}
     </div>

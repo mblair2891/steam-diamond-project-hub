@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSignedMediaUrl } from '@/hooks/useSignedMediaUrl';
 
 export default function MediaPreview({
@@ -17,10 +17,24 @@ export default function MediaPreview({
   /** Show video controls (preview modal) */
   controls?: boolean;
 }) {
-  const { url: resolved, loading, error, refresh } = useSignedMediaUrl(url, {
+  const {
+    url: resolved,
+    streamUrl,
+    loading,
+    error,
+    refresh,
+    useStreamFallback
+  } = useSignedMediaUrl(url, {
     filename: name || undefined
   });
-  const [mediaError, setMediaError] = useState(false);
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null);
+  const [triedStream, setTriedStream] = useState(false);
+
+  // Sync resolved → display; reset when source changes
+  useEffect(() => {
+    setDisplayUrl(resolved);
+    setTriedStream(false);
+  }, [resolved, url]);
 
   const isImage =
     (mime || '').startsWith('image/') ||
@@ -29,7 +43,20 @@ export default function MediaPreview({
     (mime || '').startsWith('video/') ||
     Boolean((url || resolved || '').match(/\.(mp4|mov|webm|avi|m4v)(\?|$)/i));
 
-  if (loading && !resolved) {
+  function handleMediaError() {
+    // Signed CDN URL failed (e.g. Forbidden) → same-origin stream
+    if (!triedStream && streamUrl && displayUrl !== streamUrl) {
+      setTriedStream(true);
+      useStreamFallback();
+      setDisplayUrl(streamUrl);
+      return;
+    }
+    // Last resort: re-mint signed + stream URLs
+    setTriedStream(false);
+    refresh();
+  }
+
+  if (loading && !displayUrl && !resolved) {
     return (
       <div
         className={`${className} flex animate-pulse items-center justify-center rounded-lg border border-surface-600 bg-surface-950 text-[10px] text-ink-dim`}
@@ -40,14 +67,16 @@ export default function MediaPreview({
     );
   }
 
-  if ((error || mediaError) && !resolved) {
+  const src = displayUrl || resolved;
+
+  if (error && !src) {
     return (
       <button
         type="button"
         className={`${className} flex flex-col items-center justify-center gap-0.5 rounded-lg border border-red-500/30 bg-red-500/10 text-[10px] text-red-300`}
         title={error || 'Preview failed'}
         onClick={() => {
-          setMediaError(false);
+          setTriedStream(false);
           refresh();
         }}
       >
@@ -57,39 +86,34 @@ export default function MediaPreview({
     );
   }
 
-  if (resolved && isImage && !mediaError) {
+  if (src && isImage) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={resolved}
+        src={src}
         alt={name || ''}
         className={`${className} rounded-lg border border-surface-600 object-cover`}
-        onError={() => {
-          setMediaError(true);
-          refresh();
-        }}
+        onError={handleMediaError}
       />
     );
   }
 
-  if (resolved && isVideo && !mediaError) {
+  if (src && isVideo) {
     return (
       <video
-        src={resolved}
+        key={src}
+        src={src}
         className={`${className} rounded-lg border border-surface-600 object-cover`}
         muted={!controls}
         playsInline
         controls={controls}
         preload="metadata"
-        onError={() => {
-          setMediaError(true);
-          refresh();
-        }}
+        onError={handleMediaError}
       />
     );
   }
 
-  if (resolved) {
+  if (src) {
     return (
       <div
         className={`${className} flex items-center justify-center rounded-lg border border-surface-600 bg-surface-950 text-lg`}

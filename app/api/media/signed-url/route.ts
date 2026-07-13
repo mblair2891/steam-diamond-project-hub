@@ -1,26 +1,19 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { createSignedGetUrl, extractBlobPathname, isVercelBlobRef } from '@/lib/blob-sign';
+import {
+  buildStreamUrls,
+  createSignedGetUrl,
+  extractBlobPathname,
+  isVercelBlobRef
+} from '@/lib/blob-sign';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function streamFallback(target: string, filename?: string | null) {
-  const pathname = extractBlobPathname(target);
-  const q = new URLSearchParams();
-  if (target.includes('://')) q.set('url', target.split('?')[0]);
-  else q.set('pathname', pathname);
-  if (filename) q.set('filename', filename);
-  return {
-    previewStreamUrl: `/api/media/stream?${q.toString()}&disposition=inline`,
-    downloadStreamUrl: `/api/media/stream?${q.toString()}&disposition=attachment`
-  };
-}
-
 /**
  * GET /api/media/signed-url?pathname=… | ?url=…&filename=…
  * Auth: Clerk session required.
- * Returns temporary signed CDN URLs + same-origin stream fallbacks.
+ * Returns temporary signed CDN URLs (24h) + same-origin stream fallbacks.
  */
 export async function GET(request: Request) {
   const { userId } = await auth();
@@ -55,7 +48,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Not a Vercel Blob reference.' }, { status: 400 });
   }
 
-  const fallback = streamFallback(target, filename);
+  const fallback = buildStreamUrls(target, filename);
 
   try {
     const result = await createSignedGetUrl(target);
@@ -67,7 +60,8 @@ export async function GET(request: Request) {
         pathname: result.pathname,
         expiresAt: result.expiresAt,
         // Always include stream fallbacks (same-origin, cookie auth)
-        ...fallback
+        previewStreamUrl: fallback.previewStreamUrl,
+        downloadStreamUrl: fallback.downloadStreamUrl
       },
       {
         headers: {
@@ -85,10 +79,11 @@ export async function GET(request: Request) {
         signedUrl: fallback.previewStreamUrl,
         downloadUrl: fallback.downloadStreamUrl,
         pathname: extractBlobPathname(target),
-        expiresAt: Date.now() + 30 * 60 * 1000,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
         fallback: true,
         warning: message,
-        ...fallback
+        previewStreamUrl: fallback.previewStreamUrl,
+        downloadStreamUrl: fallback.downloadStreamUrl
       },
       {
         headers: { 'Cache-Control': 'private, no-store' }
@@ -130,27 +125,33 @@ export async function POST(request: Request) {
       downloadUrl: string;
       expiresAt: number;
       pathname: string;
+      previewStreamUrl?: string;
+      downloadStreamUrl?: string;
       fallback?: boolean;
     }
   > = {};
 
   await Promise.all(
     urls.map(async (raw) => {
-      const fallback = streamFallback(raw);
+      const fallback = buildStreamUrls(raw);
       try {
         const signed = await createSignedGetUrl(raw);
         results[raw] = {
           signedUrl: signed.signedUrl,
           downloadUrl: signed.downloadUrl,
           expiresAt: signed.expiresAt,
-          pathname: signed.pathname
+          pathname: signed.pathname,
+          previewStreamUrl: fallback.previewStreamUrl,
+          downloadStreamUrl: fallback.downloadStreamUrl
         };
       } catch {
         results[raw] = {
           signedUrl: fallback.previewStreamUrl,
           downloadUrl: fallback.downloadStreamUrl,
-          expiresAt: Date.now() + 30 * 60 * 1000,
+          expiresAt: Date.now() + 24 * 60 * 60 * 1000,
           pathname: extractBlobPathname(raw),
+          previewStreamUrl: fallback.previewStreamUrl,
+          downloadStreamUrl: fallback.downloadStreamUrl,
           fallback: true
         };
       }
