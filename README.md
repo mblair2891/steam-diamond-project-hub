@@ -103,13 +103,23 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 
 1. Vercel Dashboard → **Storage** → create a **Blob** store  
 2. Copy `BLOB_READ_WRITE_TOKEN` into `.env.local` and Vercel project env  
-3. Uploads use the client `upload()` helper → `/api/blob/upload`  
-4. Metadata (title, description, status, schedule, assignee) stays in project data; **file bytes live in Blob**  
+3. Uploads go **browser → `POST /api/media/upload` → server `put()` from `@vercel/blob`**  
+4. Success is shown only after the server returns a confirmed public URL  
+5. Metadata (title, description, status, schedule, assignee) stays in project data; **file bytes live in Blob**  
 
-Max file size: **100MB**. Uploads use multipart for files ≥4MB, report clear phases
-(**Uploading → Processing → Uploaded successfully**), and continue in a global panel if you
-navigate away. Metadata is written only after the Blob URL is returned, and project data is
-saved to `localStorage` immediately so library assets do not disappear mid-route.
+### Upload flow
+
+| Phase | Meaning |
+|-------|---------|
+| Uploading… | File bytes sent to our API (XHR progress 0–90%) |
+| Saving to cloud… | Server writing to Vercel Blob (`put`) |
+| Uploaded successfully | API returned `url`; library metadata saved |
+
+Max file size: **100MB** (app check). On Vercel Hobby, request body limits may be lower —
+if large videos fail, check platform limits or upgrade the deployment plan.
+
+Progress continues in a global panel if you navigate away. Project data is written to
+`localStorage` immediately when a library asset is saved.
 
 ---
 

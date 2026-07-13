@@ -158,7 +158,7 @@ export default function MediaPage() {
       <div>
         <h2 className="section-title">Media Library</h2>
         <p className="ml-3 mt-1 text-sm text-ink-muted">
-          Upload videos & images to Vercel Blob · progress continues if you leave this page
+          Server-side Vercel Blob upload · progress continues if you leave this page
         </p>
       </div>
 
@@ -180,7 +180,7 @@ export default function MediaPage() {
           <div className="mb-2 text-3xl opacity-60">⇪</div>
           <p className="text-sm font-semibold text-amber-300">Drag & drop files here</p>
           <p className="mt-1 text-xs text-ink-dim">
-            Images & videos up to 100MB · stored in Vercel Blob
+            Images & videos up to 100MB · POST /api/media/upload → Blob
           </p>
           {activeCount > 0 && (
             <p className="mt-2 text-xs font-semibold text-sky-300">

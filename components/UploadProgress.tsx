@@ -5,7 +5,7 @@ import type { UploadPhase } from '@/lib/blob-upload';
 const PHASE_LABEL: Record<UploadPhase, string> = {
   queued: 'Queued…',
   uploading: 'Uploading…',
-  processing: 'Processing…',
+  processing: 'Saving to cloud…',
   complete: 'Uploaded successfully',
   error: 'Upload failed'
 };
@@ -33,8 +33,8 @@ export default function UploadProgress({
       : phase === 'error'
         ? 0
         : phase === 'processing'
-          ? Math.max(progress, 96)
-          : Math.max(0, Math.min(99, Math.round(progress)));
+          ? Math.max(92, Math.min(99, Math.round(progress || 92)))
+          : Math.max(0, Math.min(90, Math.round(progress)));
 
   const isImage = (mime || '').startsWith('image/');
   const isVideo = (mime || '').startsWith('video/');
@@ -48,9 +48,7 @@ export default function UploadProgress({
           : 'bg-amber-400';
 
   const statusText =
-    phase === 'error'
-      ? error || PHASE_LABEL.error
-      : PHASE_LABEL[phase] || PHASE_LABEL.uploading;
+    phase === 'error' ? error || PHASE_LABEL.error : PHASE_LABEL[phase] || PHASE_LABEL.uploading;
 
   return (
     <div
@@ -110,14 +108,15 @@ export default function UploadProgress({
             className={`h-full rounded-full transition-all duration-300 ${barColor} ${
               phase === 'uploading' || phase === 'processing' ? 'animate-pulse' : ''
             }`}
-            style={{ width: `${pct}%` }}
+            style={{ width: `${phase === 'error' ? 0 : pct}%` }}
           />
         </div>
         <div className="mt-1 flex items-center justify-between text-[11px] text-ink-dim">
           <span>
             {phase === 'complete' ? '100%' : phase === 'error' ? '—' : `${pct}%`}
           </span>
-          {phase === 'processing' && <span>Saving to cloud…</span>}
+          {phase === 'processing' && <span>Writing to Vercel Blob…</span>}
+          {phase === 'uploading' && <span>Sending to server…</span>}
         </div>
         {phase === 'error' && error && (
           <p className="mt-1 text-[11px] leading-snug text-red-300/90">{error}</p>

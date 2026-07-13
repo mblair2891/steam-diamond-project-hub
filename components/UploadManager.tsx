@@ -34,7 +34,6 @@ export interface UploadJob {
   folder: string;
   kind: UploadJobKind;
   result?: BlobUploadResult;
-  /** Set when kind=library after metadata is written */
   assetId?: string;
 }
 
@@ -42,7 +41,6 @@ interface StartUploadOptions {
   file: File;
   folder?: string;
   kind?: UploadJobKind;
-  /** Called when blob upload finishes (even if user left the page). */
   onComplete?: (result: BlobUploadResult, jobId: string) => void;
   onError?: (error: Error, jobId: string) => void;
 }
@@ -76,7 +74,6 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
   const { setData } = useProject();
   const { success, error: toastError, info } = useToast();
   const [jobs, setJobs] = useState<UploadJob[]>([]);
-  /** Survive page unmount — do not put File/callbacks only in React state */
   const metaRef = useRef<Map<string, JobMeta>>(new Map());
 
   const patchJob = useCallback((id: string, patch: Partial<UploadJob>) => {
@@ -133,22 +130,26 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
       try {
         patchJob(jobId, { phase: 'uploading', progress: 1, error: undefined });
 
+        // Server-side Blob put via /api/media/upload — success only after URL returns
         const result = await uploadToBlob({
           file,
           folder,
-          onPhase: (phase) => patchJob(jobId, { phase }),
+          onPhase: (phase) => {
+            patchJob(jobId, {
+              phase,
+              // Keep progress monotonic when entering processing
+              ...(phase === 'processing' ? { progress: 92 } : {})
+            });
+          },
           onProgress: (pct) => patchJob(jobId, { progress: pct })
         });
 
-        // Finalize UI past the "99%" plateau, then persist metadata
-        patchJob(jobId, {
-          phase: 'processing',
-          progress: 99,
-          result
-        });
+        if (!result.url) {
+          throw new Error('Upload completed without a file URL.');
+        }
 
+        // Persist library metadata only after confirmed Blob URL
         let assetId: string | undefined;
-
         if (kind === 'library') {
           assetId = uid('ma');
           const asset: MediaAsset = {
@@ -167,7 +168,6 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
             assigneeName: null
           };
 
-          // Synchronous save via ProjectProvider (writes localStorage immediately)
           setData((d) => ({
             ...d,
             mediaAssets: [...d.mediaAssets, asset]
@@ -208,12 +208,6 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
         } catch {
           /* ignore */
         }
-      } finally {
-        // Keep meta until dismiss so UI can still show name; drop File blob
-        const m = metaRef.current.get(jobId);
-        if (m) {
-          metaRef.current.set(jobId, { ...m, file: m.file });
-        }
       }
     },
     [dismissJob, patchJob, setData, success, toastError]
@@ -246,24 +240,23 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
         onError
       });
 
-      const job: UploadJob = {
-        id,
-        name: file.name,
-        mime: file.type || 'application/octet-stream',
-        size: file.size,
-        progress: 0,
-        phase: 'queued',
-        previewUrl,
-        folder,
-        kind
-      };
+      setJobs((list) => [
+        ...list,
+        {
+          id,
+          name: file.name,
+          mime: file.type || 'application/octet-stream',
+          size: file.size,
+          progress: 0,
+          phase: 'queued',
+          previewUrl,
+          folder,
+          kind
+        }
+      ]);
 
-      setJobs((list) => [...list, job]);
       info('Upload started', `${file.name} · ${formatBytes(file.size)}`);
-
-      // Detached promise — survives Media page unmount / route changes
       void runJob(id);
-
       return id;
     },
     [info, runJob, toastError]
