@@ -105,12 +105,14 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 2. Copy `BLOB_READ_WRITE_TOKEN` into `.env.local` and Vercel project env  
 3. Uploads go **browser → `POST /api/media/upload` → server `put({ access: 'private' })`**  
 4. Success is shown only after the server returns a confirmed Blob URL  
-5. **View / download / delete** (Clerk session required):
+5. **Media Library is cloud-synced** (not device-local):
+   - `GET /api/media/list` — `list()` from Vercel Blob (`media/` prefix) for every device
+   - `GET/PUT /api/media/meta` — shared titles/status/assignees in `library/meta.json`
    - `GET /api/media/signed-url` — temporary signed CDN URLs (**~24 hours**) + stream fallbacks
    - `GET /api/media/stream` — authenticated byte stream (same-origin; never hits raw private hosts)
-   - `DELETE /api/media/delete` — remove object from private Blob (**any signed-in user**)
-6. Media Library: **Preview · Download · Delete** buttons (raw private Blob URLs are never used in the browser — they return Forbidden)
-7. Metadata stays in project data; **file bytes live in private Blob**  
+   - `DELETE /api/media/delete` — remove blob + meta (**any signed-in user**)
+6. Media Library: **Preview · Download · Delete**, grid/list views, refresh from cloud
+7. **File bytes + library listing live in private Blob** so phone and desktop stay in sync  
 
 ### Upload flow
 

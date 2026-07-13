@@ -2,6 +2,7 @@ import { del } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { extractBlobPathname } from '@/lib/blob-sign';
+import { removeLibraryMetaEntry } from '@/lib/media-library';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
 /**
  * DELETE /api/media/delete
  * Body: { url?: string, pathname?: string }
- * Removes the object from the private Vercel Blob store.
+ * Removes the object from the private Vercel Blob store + library meta.
  * Any signed-in user may delete media (library is team-shared).
  */
 export async function DELETE(request: Request) {
@@ -55,12 +56,25 @@ export async function DELETE(request: Request) {
         ? body.url.split('?')[0]
         : pathname;
     await del(delTarget, { token });
+
+    // Drop shared metadata so other devices stay in sync
+    try {
+      await removeLibraryMetaEntry(pathname, token);
+    } catch (metaErr) {
+      console.warn('[api/media/delete] meta cleanup failed', metaErr);
+    }
+
     return NextResponse.json({ ok: true, pathname });
   } catch (err) {
     console.error('[api/media/delete]', err);
     const message = err instanceof Error ? err.message : 'Delete failed';
     // Still allow client to drop metadata if blob already gone
     if (/not found|404|BlobNotFound/i.test(message)) {
+      try {
+        await removeLibraryMetaEntry(pathname, token);
+      } catch {
+        /* ignore */
+      }
       return NextResponse.json({ ok: true, pathname, missing: true });
     }
     if (/forbidden|unauthorized|access|BlobAccessError/i.test(message)) {

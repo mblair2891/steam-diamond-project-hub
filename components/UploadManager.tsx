@@ -20,6 +20,7 @@ import {
   type UploadPhase
 } from '@/lib/blob-upload';
 import { uid } from '@/lib/dates';
+import { notifyMediaLibraryChanged, saveMediaMeta } from '@/lib/media-client';
 import { saveProject } from '@/lib/storage';
 import type { MediaAsset, ProjectData } from '@/lib/types';
 
@@ -252,6 +253,7 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
         let assetId: string | undefined;
         if (kind === 'library') {
           assetId = uid('ma');
+          const title = result.name.replace(/\.[^.]+$/, '') || result.name;
           const asset: MediaAsset = {
             id: assetId,
             name: result.name,
@@ -260,7 +262,7 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
             fileUrl: result.url,
             pathname: result.pathname || undefined,
             notes: '',
-            title: result.name.replace(/\.[^.]+$/, '') || result.name,
+            title,
             description: '',
             scheduledDate: '',
             status: 'draft',
@@ -269,27 +271,33 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
             assigneeName: null
           };
 
+          // Local cache (device-specific) — cloud list is the real source of truth
           try {
             saveAssetMetadata(setData, asset);
           } catch (metaErr) {
-            // File is in Blob — still mark complete but surface metadata issue
-            const msg =
-              metaErr instanceof Error ? metaErr.message : 'Could not save library metadata.';
-            patchJob(jobId, {
-              phase: 'complete',
-              progress: 100,
-              result,
-              assetId,
-              error: msg,
-              canRetry: false
-            });
-            toastError('Metadata save issue', msg);
-            success('File uploaded', `${name} is on Vercel Blob`);
-            onComplete?.(result, jobId);
-            runningRef.current.delete(jobId);
-            window.setTimeout(() => dismissJob(jobId), 8000);
-            return;
+            console.warn('[upload] localStorage cache failed', metaErr);
           }
+
+          // Shared cloud metadata so all devices see titles / mime after upload
+          if (result.pathname || result.url) {
+            try {
+              await saveMediaMeta({
+                pathname: result.pathname,
+                url: result.url,
+                name: result.name,
+                mime: result.contentType,
+                title,
+                description: '',
+                notes: '',
+                status: 'draft'
+              });
+            } catch (cloudMetaErr) {
+              console.warn('[upload] cloud meta save failed', cloudMetaErr);
+              // File is still in Blob; list() will show it without custom title
+            }
+          }
+
+          notifyMediaLibraryChanged();
         }
 
         patchJob(jobId, {

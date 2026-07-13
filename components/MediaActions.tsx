@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useSignedMediaUrl } from '@/hooks/useSignedMediaUrl';
 import { useToast } from '@/components/ToastProvider';
+import { notifyMediaLibraryChanged } from '@/lib/media-client';
 
 /**
  * Preview / Download / Delete controls for a private media file.
@@ -102,6 +103,7 @@ export default function MediaActions({
       if (!res.ok) {
         throw new Error(data.error || `Delete failed (${res.status})`);
       }
+      notifyMediaLibraryChanged();
       onDeleted?.();
       success('File deleted', name || 'Media removed from Blob and library');
     } catch (err) {
