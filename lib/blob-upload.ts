@@ -22,6 +22,9 @@ export interface BlobUploadResult {
   size: number;
   name: string;
   downloadUrl?: string;
+  /** Authenticated proxy path for private blobs (safe for <img>/<video>) */
+  viewUrl?: string;
+  access?: 'private' | 'public';
 }
 
 export interface BlobUploadOptions {
@@ -176,6 +179,8 @@ function uploadOnce(
         size?: number;
         name?: string;
         downloadUrl?: string;
+        viewUrl?: string;
+        access?: 'private' | 'public';
         error?: string;
       };
 
@@ -196,13 +201,22 @@ function uploadOnce(
         return;
       }
 
+      const pathname = data.pathname || '';
+      const viewUrl =
+        data.viewUrl ||
+        (pathname
+          ? `/api/media/file?pathname=${encodeURIComponent(pathname)}`
+          : `/api/media/file?url=${encodeURIComponent(data.url)}`);
+
       succeed({
         url: data.url,
-        pathname: data.pathname || '',
+        pathname,
         contentType: data.contentType || file.type || 'application/octet-stream',
         size: typeof data.size === 'number' ? data.size : file.size,
         name: data.name || file.name,
-        downloadUrl: data.downloadUrl || data.url
+        downloadUrl: data.downloadUrl || data.url,
+        viewUrl,
+        access: data.access || 'private'
       });
     };
 

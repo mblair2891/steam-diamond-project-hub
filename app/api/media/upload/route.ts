@@ -70,7 +70,8 @@ function isAllowedMime(mime: string, name: string): boolean {
  *   - file: File (required)
  *   - folder: "media" | "blitz" | "uploads" (optional, default media)
  *
- * Server-side put() via official @vercel/blob — more reliable than browser→Blob client tokens.
+ * Server-side put() via official @vercel/blob.
+ * Uses access: 'private' to match private Blob stores.
  */
 export async function POST(request: Request) {
   try {
@@ -152,11 +153,11 @@ export async function POST(request: Request) {
     const pathname = `${folder}/${Date.now()}-${safeName(file.name)}`;
     const useMultipart = file.size >= MULTIPART_THRESHOLD;
 
-    // Official server-side upload — uses BLOB_READ_WRITE_TOKEN from the environment
+    // Private store: access must be 'private' (public access throws on private stores)
     let blob;
     try {
       blob = await put(pathname, file, {
-        access: 'public',
+        access: 'private',
         contentType,
         addRandomSuffix: true,
         multipart: useMultipart,
@@ -165,7 +166,16 @@ export async function POST(request: Request) {
     } catch (putErr) {
       console.error('[api/media/upload] put failed', putErr);
       const raw = putErr instanceof Error ? putErr.message : String(putErr);
-      // 503/502 so the client retry logic treats Blob outages as retryable
+      if (/Cannot use public access on a private store/i.test(raw)) {
+        return NextResponse.json(
+          {
+            error:
+              'Blob store is private. This app must upload with access: "private". Redeploy the latest code.'
+          },
+          { status: 500 }
+        );
+      }
+      // 503 so the client retry logic treats Blob outages as retryable
       const retryable = /fetch failed|ECONNRESET|timeout|ETIMEDOUT|rate|503|502|temporarily/i.test(
         raw
       );
@@ -187,15 +197,20 @@ export async function POST(request: Request) {
       );
     }
 
+    // Private blobs cannot be loaded via raw URL in <img>/<video>; clients use this proxy path.
+    const viewUrl = `/api/media/file?pathname=${encodeURIComponent(blob.pathname)}`;
+
     return NextResponse.json(
       {
         ok: true,
+        access: 'private',
         url: blob.url,
         pathname: blob.pathname,
         contentType: blob.contentType || contentType,
         size: file.size,
         name: file.name,
-        downloadUrl: blob.downloadUrl || blob.url
+        downloadUrl: blob.downloadUrl || blob.url,
+        viewUrl
       },
       {
         headers: {

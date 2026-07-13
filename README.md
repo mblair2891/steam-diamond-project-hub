@@ -103,9 +103,10 @@ Writes are blocked for view-only in the UI and in `ProjectProvider.setData`. Use
 
 1. Vercel Dashboard → **Storage** → create a **Blob** store  
 2. Copy `BLOB_READ_WRITE_TOKEN` into `.env.local` and Vercel project env  
-3. Uploads go **browser → `POST /api/media/upload` → server `put()` from `@vercel/blob`**  
-4. Success is shown only after the server returns a confirmed public URL  
-5. Metadata (title, description, status, schedule, assignee) stays in project data; **file bytes live in Blob**  
+3. Uploads go **browser → `POST /api/media/upload` → server `put({ access: 'private' })`**  
+4. Success is shown only after the server returns a confirmed Blob URL  
+5. Previews use **`GET /api/media/file`** (auth required) because the store is **private**  
+6. Metadata stays in project data; **file bytes live in private Blob**  
 
 ### Upload flow
 

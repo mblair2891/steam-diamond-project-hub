@@ -138,11 +138,39 @@ export interface AssignableUser {
   email: string | null;
 }
 
+/**
+ * Convert a private Blob URL/pathname into an authenticated app proxy URL
+ * so <img>/<video> can load files from a private store.
+ */
+export function privateBlobViewUrl(fileUrlOrPath?: string | null): string {
+  if (!fileUrlOrPath) return '';
+  const v = fileUrlOrPath.trim();
+  if (!v) return '';
+  // Already a local preview or proxy
+  if (
+    v.startsWith('data:') ||
+    v.startsWith('blob:') ||
+    v.startsWith('/api/media/file')
+  ) {
+    return v;
+  }
+  // Pathname form: media/… or blitz/…
+  if (/^(media|blitz|uploads)\//i.test(v) && !v.includes('://')) {
+    return `/api/media/file?pathname=${encodeURIComponent(v)}`;
+  }
+  // Full private (or any) Vercel Blob URL
+  if (v.includes('blob.vercel-storage.com') || v.includes('vercel-storage.com')) {
+    return `/api/media/file?url=${encodeURIComponent(v)}`;
+  }
+  return v;
+}
+
 /** Best preview URL for a media asset (cloud first, then legacy data URL). */
 export function mediaAssetUrl(a: Pick<MediaAsset, 'fileUrl' | 'dataUrl'>): string {
-  return a.fileUrl || a.dataUrl || '';
+  if (a.dataUrl && !a.fileUrl) return a.dataUrl;
+  return privateBlobViewUrl(a.fileUrl) || a.dataUrl || '';
 }
 
 export function mediaEventFileUrl(e: Pick<MediaEvent, 'fileUrl'>): string {
-  return e.fileUrl || '';
+  return privateBlobViewUrl(e.fileUrl);
 }

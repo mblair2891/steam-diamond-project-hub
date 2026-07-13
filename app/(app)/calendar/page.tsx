@@ -13,7 +13,13 @@ import type { UploadPhase } from '@/lib/blob-upload';
 import { downloadBlob, formatDate, parseLocalDate, toISODate, uid } from '@/lib/dates';
 import { notifyUsers } from '@/lib/notify-client';
 import { exportCalendarCSV } from '@/lib/storage';
-import type { MediaDraftStatus, MediaEvent, MediaEventType } from '@/lib/types';
+import {
+  mediaEventFileUrl,
+  privateBlobViewUrl,
+  type MediaDraftStatus,
+  type MediaEvent,
+  type MediaEventType
+} from '@/lib/types';
 
 function emptyEvent(): MediaEvent {
   return {
@@ -290,7 +296,7 @@ export default function CalendarPage() {
     }
   }
 
-  const previewUrl = localPreview || form.fileUrl || null;
+  const previewUrl = localPreview || privateBlobViewUrl(form.fileUrl) || null;
   const showProgress =
     attachPhase !== null &&
     attachPhase !== 'complete' &&
@@ -429,7 +435,7 @@ export default function CalendarPage() {
               className="data-row grid grid-cols-1 gap-3 sm:grid-cols-[auto_100px_1fr_auto] sm:items-center"
             >
               <MediaPreview
-                url={e.fileUrl}
+                url={mediaEventFileUrl(e)}
                 mime={e.mime}
                 name={e.fileName || e.title}
                 className="h-12 w-12"
