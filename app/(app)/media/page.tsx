@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState } from 'react';
 import Modal from '@/components/Modal';
+import MediaActions from '@/components/MediaActions';
 import MediaPreview from '@/components/MediaPreview';
-import SignedMediaLink from '@/components/SignedMediaLink';
 import { useProject } from '@/components/ProjectProvider';
 import { useToast } from '@/components/ToastProvider';
 import { useUploadManager } from '@/components/UploadManager';
@@ -34,6 +34,7 @@ const emptyAsset = (): MediaAsset => ({
   mime: '',
   size: 0,
   fileUrl: '',
+  pathname: '',
   notes: '',
   title: '',
   description: '',
@@ -54,6 +55,7 @@ export default function MediaPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [drag, setDrag] = useState(false);
   const [modal, setModal] = useState<'edit' | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null);
   const [form, setForm] = useState<MediaAsset>(emptyAsset());
   const [savingMeta, setSavingMeta] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,24 +83,26 @@ export default function MediaPage() {
     const files = Array.from(fileList);
     if (files.length === 0) return;
 
-    let started = 0;
     for (const file of files) {
       try {
         startUpload({
           file,
           folder: 'media',
           kind: 'library'
-          // Metadata is saved by UploadManager after Blob completes
         });
-        started++;
       } catch {
         // startUpload already toasts validation errors
       }
     }
+  }
 
-    if (started > 0) {
-      // Progress lives in GlobalUploadPanel — safe to leave this page
-    }
+  function removeAssetFromLibrary(id: string) {
+    setData((d) => ({
+      ...d,
+      mediaAssets: d.mediaAssets.filter((x) => x.id !== id)
+    }));
+    if (previewAsset?.id === id) setPreviewAsset(null);
+    if (form.id === id) setModal(null);
   }
 
   async function saveMeta(e: React.FormEvent) {
@@ -119,8 +123,8 @@ export default function MediaPage() {
         assigneeName: form.assigneeId ? assignee?.displayName || form.assigneeName || null : null
       };
 
-      if (!next.fileUrl && !next.dataUrl) {
-        toastError('Missing file', 'This asset has no cloud URL. Re-upload the file.');
+      if (!next.fileUrl && !next.dataUrl && !next.pathname) {
+        toastError('Missing file', 'This asset has no cloud file. Re-upload it.');
         setSavingMeta(false);
         return;
       }
@@ -159,7 +163,7 @@ export default function MediaPage() {
       <div>
         <h2 className="section-title">Media Library</h2>
         <p className="ml-3 mt-1 text-sm text-ink-muted">
-          Server-side Vercel Blob · progress persists across pages · auto-retry on network errors
+          Private Blob storage · signed previews · download & delete for signed-in users
         </p>
       </div>
 
@@ -181,7 +185,7 @@ export default function MediaPage() {
           <div className="mb-2 text-3xl opacity-60">⇪</div>
           <p className="text-sm font-semibold text-amber-300">Drag & drop files here</p>
           <p className="mt-1 text-xs text-ink-dim">
-            Images & videos up to 100MB · POST /api/media/upload → Blob
+            Images & videos up to 100MB · stored privately in Vercel Blob
           </p>
           {activeCount > 0 && (
             <p className="mt-2 text-xs font-semibold text-sky-300">
@@ -233,13 +237,21 @@ export default function MediaPage() {
           </div>
         ) : (
           assets.map((a) => {
-            const url = mediaAssetUrl(a);
+            const ref = mediaAssetUrl(a);
+            const cloudRef = a.fileUrl || a.pathname || '';
             return (
               <div
                 key={a.id}
-                className="data-row grid grid-cols-[auto_1fr_auto] items-center gap-3"
+                className="data-row grid grid-cols-1 items-center gap-3 sm:grid-cols-[auto_1fr_auto]"
               >
-                <MediaPreview url={url} mime={a.mime} name={a.name} />
+                <button
+                  type="button"
+                  className="justify-self-start"
+                  onClick={() => setPreviewAsset(a)}
+                  title="Preview"
+                >
+                  <MediaPreview url={ref} mime={a.mime} name={a.name} />
+                </button>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium">{a.title || a.name}</div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-dim">
@@ -250,8 +262,8 @@ export default function MediaPage() {
                     <span>· {formatDate(a.addedAt?.slice(0, 10) || '')}</span>
                     {a.scheduledDate && <span>· Sched {formatDate(a.scheduledDate)}</span>}
                     {a.assigneeName && <span className="badge badge-role">{a.assigneeName}</span>}
-                    {a.fileUrl && <span className="text-emerald-400/80">Cloud</span>}
-                    {!a.fileUrl && a.dataUrl && (
+                    {cloudRef && <span className="text-emerald-400/80">Private cloud</span>}
+                    {!cloudRef && a.dataUrl && (
                       <span className="text-amber-300/70">Local only</span>
                     )}
                   </div>
@@ -261,36 +273,26 @@ export default function MediaPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex gap-1">
-                  {url && <SignedMediaLink url={url} name={a.name} />}
+                <div className="flex flex-col items-stretch gap-1 sm:items-end">
+                  <MediaActions
+                    fileUrl={cloudRef || ref}
+                    name={a.name}
+                    mime={a.mime}
+                    canDelete={canEdit}
+                    onPreview={() => setPreviewAsset(a)}
+                    onDeleted={() => removeAssetFromLibrary(a.id)}
+                  />
                   {canEdit && (
-                    <>
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        onClick={() => {
-                          setForm({ ...emptyAsset(), ...a });
-                          setModal('edit');
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        onClick={() => {
-                          if (confirm('Remove this asset?')) {
-                            setData((d) => ({
-                              ...d,
-                              mediaAssets: d.mediaAssets.filter((x) => x.id !== a.id)
-                            }));
-                            success('Asset removed', a.title || a.name);
-                          }
-                        }}
-                      >
-                        Del
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm self-end"
+                      onClick={() => {
+                        setForm({ ...emptyAsset(), ...a });
+                        setModal('edit');
+                      }}
+                    >
+                      Edit details
+                    </button>
                   )}
                 </div>
               </div>
@@ -298,6 +300,41 @@ export default function MediaPage() {
           })
         )}
       </div>
+
+      {/* Full preview modal */}
+      <Modal
+        open={!!previewAsset}
+        title={previewAsset?.title || previewAsset?.name || 'Preview'}
+        onClose={() => setPreviewAsset(null)}
+      >
+        {previewAsset && (
+          <div className="space-y-4">
+            <MediaPreview
+              url={mediaAssetUrl(previewAsset)}
+              mime={previewAsset.mime}
+              name={previewAsset.name}
+              className="mx-auto h-auto max-h-[60vh] w-full max-w-full object-contain"
+              controls
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-ink-dim">
+                {previewAsset.mime} · {formatBytes(previewAsset.size)}
+                {previewAsset.pathname ? ` · ${previewAsset.pathname}` : ''}
+              </p>
+              <MediaActions
+                fileUrl={previewAsset.fileUrl || previewAsset.pathname || mediaAssetUrl(previewAsset)}
+                name={previewAsset.name}
+                mime={previewAsset.mime}
+                canDelete={canEdit}
+                onDeleted={() => {
+                  removeAssetFromLibrary(previewAsset.id);
+                  setPreviewAsset(null);
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal open={modal === 'edit'} title="Edit media asset" onClose={() => setModal(null)}>
         <form onSubmit={(e) => void saveMeta(e)} className="space-y-3">
@@ -379,9 +416,6 @@ export default function MediaPage() {
                 name={form.name}
                 className="h-32 w-full max-w-xs"
               />
-              {form.fileUrl && (
-                <p className="mt-2 break-all text-[10px] text-ink-dim">{form.fileUrl}</p>
-              )}
             </div>
           )}
           <button type="submit" className="btn-primary w-full" disabled={savingMeta}>

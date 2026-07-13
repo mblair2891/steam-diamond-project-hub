@@ -30,6 +30,7 @@ function emptyEvent(): MediaEvent {
     notes: '',
     status: 'draft',
     fileUrl: null,
+    pathname: null,
     fileName: null,
     mime: null,
     size: null,
@@ -87,6 +88,7 @@ export default function CalendarPage() {
       setForm((f) => ({
         ...f,
         fileUrl: job.result!.url,
+        pathname: job.result!.pathname || null,
         fileName: job.result!.name,
         mime: job.result!.contentType,
         size: job.result!.size,
@@ -186,6 +188,7 @@ export default function CalendarPage() {
           setForm((f) => ({
             ...f,
             fileUrl: result.url,
+            pathname: result.pathname || null,
             fileName: result.name,
             mime: result.contentType,
             size: result.size,

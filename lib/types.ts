@@ -53,6 +53,8 @@ export interface MediaEvent {
   status?: MediaDraftStatus;
   /** Cloud file URL (Vercel Blob) */
   fileUrl?: string | null;
+  /** Blob store pathname (preferred for signing) */
+  pathname?: string | null;
   fileName?: string | null;
   mime?: string | null;
   size?: number | null;
@@ -72,6 +74,8 @@ export interface MediaAsset {
   dataUrl?: string;
   /** Cloud storage URL (Vercel Blob) */
   fileUrl?: string;
+  /** Blob store pathname (preferred for signing) */
+  pathname?: string;
   notes: string;
   title?: string;
   description?: string;
@@ -148,12 +152,17 @@ export function privateBlobViewUrl(fileUrlOrPath?: string | null): string {
   return fileUrlOrPath.trim();
 }
 
-/** Best media reference for an asset (cloud first, then legacy data URL). */
-export function mediaAssetUrl(a: Pick<MediaAsset, 'fileUrl' | 'dataUrl'>): string {
+/** Best media reference for signing/streaming (pathname > fileUrl > dataUrl). */
+export function mediaAssetUrl(
+  a: Pick<MediaAsset, 'fileUrl' | 'dataUrl' | 'pathname'>
+): string {
+  if (a.pathname) return a.pathname;
   if (a.fileUrl) return a.fileUrl;
   return a.dataUrl || '';
 }
 
-export function mediaEventFileUrl(e: Pick<MediaEvent, 'fileUrl'>): string {
-  return e.fileUrl || '';
+export function mediaEventFileUrl(
+  e: Pick<MediaEvent, 'fileUrl' | 'pathname'>
+): string {
+  return e.pathname || e.fileUrl || '';
 }

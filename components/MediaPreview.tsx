@@ -1,28 +1,33 @@
 'use client';
 
+import { useState } from 'react';
 import { useSignedMediaUrl } from '@/hooks/useSignedMediaUrl';
 
 export default function MediaPreview({
   url,
   mime,
   name,
-  className = 'h-14 w-14'
+  className = 'h-14 w-14',
+  controls = false
 }: {
   url?: string | null;
   mime?: string | null;
   name?: string;
   className?: string;
+  /** Show video controls (preview modal) */
+  controls?: boolean;
 }) {
-  const { url: resolved, loading, error } = useSignedMediaUrl(url);
+  const { url: resolved, loading, error, refresh } = useSignedMediaUrl(url, {
+    filename: name || undefined
+  });
+  const [mediaError, setMediaError] = useState(false);
 
   const isImage =
     (mime || '').startsWith('image/') ||
-    Boolean(url?.match(/\.(jpe?g|png|gif|webp|heic|avif)(\?|$)/i)) ||
-    Boolean(resolved?.match(/\.(jpe?g|png|gif|webp|heic|avif)(\?|$)/i));
+    Boolean((url || resolved || '').match(/\.(jpe?g|png|gif|webp|heic|avif)(\?|$)/i));
   const isVideo =
     (mime || '').startsWith('video/') ||
-    Boolean(url?.match(/\.(mp4|mov|webm|avi|m4v)(\?|$)/i)) ||
-    Boolean(resolved?.match(/\.(mp4|mov|webm|avi|m4v)(\?|$)/i));
+    Boolean((url || resolved || '').match(/\.(mp4|mov|webm|avi|m4v)(\?|$)/i));
 
   if (loading && !resolved) {
     return (
@@ -35,51 +40,63 @@ export default function MediaPreview({
     );
   }
 
-  if (error && !resolved) {
+  if ((error || mediaError) && !resolved) {
     return (
-      <div
-        className={`${className} flex items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 text-[10px] text-red-300`}
-        title={error}
+      <button
+        type="button"
+        className={`${className} flex flex-col items-center justify-center gap-0.5 rounded-lg border border-red-500/30 bg-red-500/10 text-[10px] text-red-300`}
+        title={error || 'Preview failed'}
+        onClick={() => {
+          setMediaError(false);
+          refresh();
+        }}
       >
-        !
-      </div>
+        <span>!</span>
+        <span className="underline">Retry</span>
+      </button>
     );
   }
 
-  if (resolved && isImage) {
+  if (resolved && isImage && !mediaError) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={resolved}
         alt={name || ''}
         className={`${className} rounded-lg border border-surface-600 object-cover`}
+        onError={() => {
+          setMediaError(true);
+          refresh();
+        }}
       />
     );
   }
 
-  if (resolved && isVideo) {
+  if (resolved && isVideo && !mediaError) {
     return (
       <video
         src={resolved}
         className={`${className} rounded-lg border border-surface-600 object-cover`}
-        muted
+        muted={!controls}
         playsInline
+        controls={controls}
         preload="metadata"
+        onError={() => {
+          setMediaError(true);
+          refresh();
+        }}
       />
     );
   }
 
   if (resolved) {
     return (
-      <a
-        href={resolved}
-        target="_blank"
-        rel="noreferrer"
-        className={`${className} flex items-center justify-center rounded-lg border border-surface-600 bg-surface-950 text-lg hover:border-amber-400/40`}
-        title={name || 'Open file'}
+      <div
+        className={`${className} flex items-center justify-center rounded-lg border border-surface-600 bg-surface-950 text-lg`}
+        title={name || 'File'}
       >
         📄
-      </a>
+      </div>
     );
   }
 

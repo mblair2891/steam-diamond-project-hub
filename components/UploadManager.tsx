@@ -258,6 +258,7 @@ export function UploadManagerProvider({ children }: { children: ReactNode }) {
             mime: result.contentType,
             size: result.size,
             fileUrl: result.url,
+            pathname: result.pathname || undefined,
             notes: '',
             title: result.name.replace(/\.[^.]+$/, '') || result.name,
             description: '',
