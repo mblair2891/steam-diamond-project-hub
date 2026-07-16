@@ -82,6 +82,12 @@ body {
   .badge-rejected {
     @apply border border-red-500/30 bg-red-500/15 text-red-300;
   }
+  .badge-draft {
+    @apply border border-surface-500 bg-surface-600 text-ink-muted;
+  }
+  .badge-needs-review {
+    @apply border border-amber-400/40 bg-amber-400/20 text-amber-200 shadow-[0_0_0_1px_rgba(232,184,74,0.15)];
+  }
   .badge-role {
     @apply border border-amber-400/30 bg-amber-400/15 text-amber-300;
   }

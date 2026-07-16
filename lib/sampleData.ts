@@ -167,7 +167,7 @@ export function buildSampleData(): ProjectData {
   );
 
   return {
-    version: 2,
+    version: 3,
     projectName: 'Steam Distillery × Diamond House BBQ',
     keyDates: [
       { id: 'kd_keys', label: 'Keys Received', date: '2026-08-01' },
@@ -395,6 +395,101 @@ export function buildSampleData(): ProjectData {
       { id: 'tn2', date: '2026-08-01', title: 'Keys received', body: 'Site access begins.' },
       { id: 'tn3', date: '2026-09-08', title: 'Soft opening target', body: 'Friends & family service.' },
       { id: 'tn4', date: '2026-09-15', title: 'Projected public opening', body: 'Grand opening media blitz.' }
+    ],
+    reviewDocuments: [
+      {
+        id: 'rd1',
+        title: 'Space lease — main suite',
+        description:
+          'Primary lease for the Steam × Diamond suite. Confirm term, CAM, and TI allowance before signing.',
+        status: 'Under Review',
+        version: 2,
+        fileName: null,
+        fileUrl: null,
+        pathname: null,
+        mime: 'application/pdf',
+        size: null,
+        redlineFileName: null,
+        redlineFileUrl: null,
+        redlinePathname: null,
+        redlineMime: null,
+        redlineSize: null,
+        comments: [
+          {
+            id: 'rdc1',
+            parentId: null,
+            authorId: 'sample',
+            authorName: 'Ops Lead',
+            body: 'Please confirm the landlord TI language on page 12 matches the LOI.',
+            createdAt: '2026-07-08T14:30:00.000Z'
+          },
+          {
+            id: 'rdc2',
+            parentId: 'rdc1',
+            authorId: 'sample',
+            authorName: 'Counsel',
+            body: 'Comparing against LOI now — will attach redline if needed.',
+            createdAt: '2026-07-08T16:05:00.000Z'
+          }
+        ],
+        createdAt: '2026-07-05T10:00:00.000Z',
+        updatedAt: '2026-07-08T16:05:00.000Z',
+        uploadedById: null,
+        uploadedByName: 'Owners'
+      },
+      {
+        id: 'rd2',
+        title: 'GC construction contract',
+        description: 'Buildout agreement and schedule of values for demo through commissioning.',
+        status: 'Draft',
+        version: 1,
+        fileName: null,
+        fileUrl: null,
+        pathname: null,
+        mime: 'application/pdf',
+        size: null,
+        redlineFileName: null,
+        redlineFileUrl: null,
+        redlinePathname: null,
+        redlineMime: null,
+        redlineSize: null,
+        comments: [],
+        createdAt: '2026-07-10T09:00:00.000Z',
+        updatedAt: '2026-07-10T09:00:00.000Z',
+        uploadedById: null,
+        uploadedByName: null
+      },
+      {
+        id: 'rd3',
+        title: 'Health department plan review letter',
+        description: 'Permit correspondence and conditions of approval.',
+        status: 'Approved',
+        version: 1,
+        fileName: null,
+        fileUrl: null,
+        pathname: null,
+        mime: 'application/pdf',
+        size: null,
+        redlineFileName: null,
+        redlineFileUrl: null,
+        redlinePathname: null,
+        redlineMime: null,
+        redlineSize: null,
+        comments: [
+          {
+            id: 'rdc3',
+            parentId: null,
+            authorId: 'sample',
+            authorName: 'GC',
+            body: 'Conditions noted; hood make-up air addressed in MEP package.',
+            createdAt: '2026-07-06T11:20:00.000Z'
+          }
+        ],
+        createdAt: '2026-07-04T12:00:00.000Z',
+        updatedAt: '2026-07-06T11:20:00.000Z',
+        uploadedById: null,
+        uploadedByName: 'Permits'
+      }
     ]
   };
 }

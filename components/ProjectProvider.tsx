@@ -10,7 +10,7 @@ import {
   type ReactNode
 } from 'react';
 import { useUser } from '@clerk/nextjs';
-import type { ProjectData } from '@/lib/types';
+import type { DocumentComment, ProjectData, ReviewDocument } from '@/lib/types';
 import { loadProject, saveProject } from '@/lib/storage';
 import { canEditProject, normalizeRole } from '@/lib/roles';
 
@@ -19,12 +19,31 @@ type Updater = ProjectData | ((prev: ProjectData) => ProjectData);
 interface ProjectContextValue {
   data: ProjectData;
   setData: (updater: Updater) => void;
+  /**
+   * Append a comment (or reply) on a review document.
+   * Allowed for every signed-in role including view-only.
+   */
+  addDocumentComment: (
+    documentId: string,
+    comment: Omit<DocumentComment, 'id' | 'createdAt'> & {
+      id?: string;
+      createdAt?: string;
+    }
+  ) => void;
   getKeysDate: () => string;
   getOpenDate: () => string;
   ready: boolean;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
+
+function persist(next: ProjectData) {
+  try {
+    saveProject(next);
+  } catch (err) {
+    console.error('[SDH] Failed to save project', err);
+  }
+}
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
@@ -49,11 +68,59 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         if (!prev) return prev;
         const next = typeof updater === 'function' ? updater(prev) : updater;
         // Persist immediately so media metadata survives navigation mid-upload
-        try {
-          saveProject(next);
-        } catch (err) {
-          console.error('[SDH] Failed to save project', err);
-        }
+        persist(next);
+        return next;
+      });
+    },
+    [user]
+  );
+
+  const addDocumentComment = useCallback(
+    (
+      documentId: string,
+      comment: Omit<DocumentComment, 'id' | 'createdAt'> & {
+        id?: string;
+        createdAt?: string;
+      }
+    ) => {
+      if (!user?.id) {
+        console.warn('[SDH] Blocked comment — not signed in');
+        return;
+      }
+      const body = (comment.body || '').trim();
+      if (!body) return;
+
+      const full: DocumentComment = {
+        id:
+          comment.id ||
+          `rdc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        parentId: comment.parentId ?? null,
+        authorId: comment.authorId || user.id,
+        authorName:
+          comment.authorName ||
+          user.fullName ||
+          user.firstName ||
+          user.username ||
+          'User',
+        body,
+        createdAt: comment.createdAt || new Date().toISOString()
+      };
+
+      setDataState((prev) => {
+        if (!prev) return prev;
+        const docs = prev.reviewDocuments || [];
+        const idx = docs.findIndex((d) => d.id === documentId);
+        if (idx < 0) return prev;
+        const doc = docs[idx];
+        const nextDoc: ReviewDocument = {
+          ...doc,
+          comments: [...(doc.comments || []), full],
+          updatedAt: new Date().toISOString()
+        };
+        const reviewDocuments = [...docs];
+        reviewDocuments[idx] = nextDoc;
+        const next = { ...prev, reviewDocuments };
+        persist(next);
         return next;
       });
     },
@@ -77,13 +144,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       return {
         data: loadProject(),
         setData,
+        addDocumentComment,
         getKeysDate,
         getOpenDate,
         ready: false
       };
     }
-    return { data, setData, getKeysDate, getOpenDate, ready: true };
-  }, [data, setData, getKeysDate, getOpenDate]);
+    return { data, setData, addDocumentComment, getKeysDate, getOpenDate, ready: true };
+  }, [data, setData, addDocumentComment, getKeysDate, getOpenDate]);
 
   if (!data) {
     return (

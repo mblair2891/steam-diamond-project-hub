@@ -5,7 +5,7 @@ import { useProject } from '@/components/ProjectProvider';
 import KeyDatesPanel from '@/components/KeyDatesPanel';
 import { useRole } from '@/hooks/useRole';
 import { daysFromToday, formatDate, formatDateShort } from '@/lib/dates';
-import type { Task } from '@/lib/types';
+import { documentNeedsReview, type Task } from '@/lib/types';
 
 function MyTaskRow({ t }: { t: Task }) {
   const d = daysFromToday(t.due);
@@ -54,6 +54,7 @@ export default function DashboardPage() {
   const pendingAppr = data.approvals.filter(
     (a) => a.status === 'pending' || a.status === 'review'
   ).length;
+  const docsNeedReview = (data.reviewDocuments || []).filter(documentNeedsReview).length;
 
   const myTasks = data.tasks
     .filter((t) => t.assigneeId && user?.id && t.assigneeId === user.id)
@@ -93,6 +94,12 @@ export default function DashboardPage() {
           <Link href="/tasks" className="btn-secondary btn-sm">
             Tasks
           </Link>
+          <Link href="/documents" className="btn-secondary btn-sm">
+            Documents
+            {docsNeedReview > 0 && (
+              <span className="badge badge-needs-review ml-0.5">{docsNeedReview}</span>
+            )}
+          </Link>
           <Link href="/calendar" className="btn-secondary btn-sm">
             Media Blitz
           </Link>
@@ -102,7 +109,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         {[
           {
             v: daysKeys >= 0 ? daysKeys : `−${Math.abs(daysKeys)}`,
@@ -116,10 +123,19 @@ export default function DashboardPage() {
           {
             v: pendingAppr,
             l: `Pending Approvals · ${data.mediaAssets.length} cloud assets`
+          },
+          {
+            v: docsNeedReview,
+            l: 'Docs need review'
           }
         ].map((m) => (
           <div key={m.l} className="metric-card">
-            <div className="text-3xl font-bold tracking-tight">{m.v}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-3xl font-bold tracking-tight">{m.v}</div>
+              {m.l === 'Docs need review' && docsNeedReview > 0 && (
+                <span className="badge badge-needs-review">Needs Review</span>
+              )}
+            </div>
             <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-dim">
               {m.l}
             </div>

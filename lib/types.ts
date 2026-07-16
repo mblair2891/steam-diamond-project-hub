@@ -4,6 +4,15 @@ export type MediaEventType = 'post' | 'video' | 'announcement' | 'event' | 'imag
 export type MediaDraftStatus = 'draft' | 'scheduled' | 'in-review' | 'approved' | 'published';
 export type ShotStatus = 'planned' | 'filmed' | 'cut' | 'killed';
 export type PhaseType = 'phase' | 'milestone';
+/** Document review workflow statuses (display labels) */
+export type DocumentReviewStatus = 'Draft' | 'Under Review' | 'Approved' | 'Rejected';
+
+export const DOCUMENT_REVIEW_STATUSES: DocumentReviewStatus[] = [
+  'Draft',
+  'Under Review',
+  'Approved',
+  'Rejected'
+];
 
 export interface KeyDate {
   id: string;
@@ -119,6 +128,46 @@ export interface TimelineNote {
   body: string;
 }
 
+/** Threaded comment on a review document (any signed-in role may post). */
+export interface DocumentComment {
+  id: string;
+  /** Parent comment id for replies; null = top-level */
+  parentId: string | null;
+  authorId: string;
+  authorName: string;
+  body: string;
+  /** ISO datetime */
+  createdAt: string;
+}
+
+/** Lease, contract, or other PDF under collaborative review. */
+export interface ReviewDocument {
+  id: string;
+  title: string;
+  description: string;
+  status: DocumentReviewStatus;
+  /** Starts at 1; bump when main PDF is replaced */
+  version: number;
+  fileName?: string | null;
+  fileUrl?: string | null;
+  pathname?: string | null;
+  mime?: string | null;
+  size?: number | null;
+  /** Attached redline / review-notes PDF */
+  redlineFileName?: string | null;
+  redlineFileUrl?: string | null;
+  redlinePathname?: string | null;
+  redlineMime?: string | null;
+  redlineSize?: number | null;
+  comments: DocumentComment[];
+  /** ISO datetime */
+  createdAt: string;
+  /** ISO datetime */
+  updatedAt: string;
+  uploadedById?: string | null;
+  uploadedByName?: string | null;
+}
+
 export interface ProjectData {
   version: number;
   projectName: string;
@@ -133,6 +182,25 @@ export interface ProjectData {
     shots: Shot[];
   };
   timelineNotes: TimelineNote[];
+  /** PDF leases, contracts, etc. with review comments */
+  reviewDocuments: ReviewDocument[];
+}
+
+/** Documents in Draft or Under Review need attention. */
+export function documentNeedsReview(doc: Pick<ReviewDocument, 'status'>): boolean {
+  return doc.status === 'Draft' || doc.status === 'Under Review';
+}
+
+export function reviewDocumentFileRef(
+  d: Pick<ReviewDocument, 'pathname' | 'fileUrl'>
+): string {
+  return d.pathname || d.fileUrl || '';
+}
+
+export function reviewDocumentRedlineRef(
+  d: Pick<ReviewDocument, 'redlinePathname' | 'redlineFileUrl'>
+): string {
+  return d.redlinePathname || d.redlineFileUrl || '';
 }
 
 export interface AssignableUser {

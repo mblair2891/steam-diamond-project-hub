@@ -8,6 +8,7 @@ import { useRole } from '@/hooks/useRole';
 import { useProject } from '@/components/ProjectProvider';
 import { downloadBlob } from '@/lib/dates';
 import { exportCalendarCSV, exportProjectJSON } from '@/lib/storage';
+import { documentNeedsReview } from '@/lib/types';
 
 const NAV_BASE = [
   { href: '/', label: 'Dashboard' },
@@ -16,6 +17,7 @@ const NAV_BASE = [
   { href: '/tasks', label: 'Project Tasks' },
   { href: '/calendar', label: 'Media Blitz' },
   { href: '/media', label: 'Media Library' },
+  { href: '/documents', label: 'Document Review' },
   { href: '/approvals', label: 'Approvals' },
   { href: '/filming', label: 'Filming' },
   { href: '/profile', label: 'Profile' }
@@ -28,6 +30,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
+  const docsNeedReview = (data.reviewDocuments || []).filter(documentNeedsReview).length;
+
   const NAV = canManageUsers
     ? [...NAV_BASE.slice(0, -1), { href: '/users', label: 'Users' }, NAV_BASE[NAV_BASE.length - 1]]
     : NAV_BASE;
@@ -35,6 +39,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   function isActive(href: string) {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
+  }
+
+  function navLabel(item: { href: string; label: string }, active: boolean) {
+    if (item.href === '/documents' && docsNeedReview > 0) {
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          {item.label}
+          <span
+            className={`badge !normal-case tracking-normal ${
+              active
+                ? 'border-surface-950/20 bg-surface-950/15 text-surface-950'
+                : 'badge-needs-review'
+            }`}
+          >
+            {docsNeedReview}
+          </span>
+        </span>
+      );
+    }
+    return item.label;
   }
 
   return (
@@ -123,7 +147,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={`nav-tab ${isActive(item.href) ? 'nav-tab-active' : ''}`}
               >
-                {item.label}
+                {navLabel(item, isActive(item.href))}
               </Link>
             ))}
           </nav>
@@ -152,7 +176,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       : 'text-ink-muted hover:bg-surface-700 hover:text-ink'
                   }`}
                 >
-                  {item.label}
+                  {navLabel(item, isActive(item.href))}
                 </Link>
               ))}
             </nav>

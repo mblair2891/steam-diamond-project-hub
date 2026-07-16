@@ -1,4 +1,13 @@
-import type { MediaAsset, MediaEvent, ProjectData, Task } from './types';
+import type {
+  DocumentComment,
+  DocumentReviewStatus,
+  MediaAsset,
+  MediaEvent,
+  ProjectData,
+  ReviewDocument,
+  Task
+} from './types';
+import { DOCUMENT_REVIEW_STATUSES } from './types';
 import { buildSampleData } from './sampleData';
 import { cascadeTaskDependencies, normalizeTask } from './tasks';
 
@@ -29,6 +38,57 @@ function migrateMediaEvent(e: MediaEvent): MediaEvent {
   };
 }
 
+function normalizeDocStatus(raw: unknown): DocumentReviewStatus {
+  const s = String(raw ?? '').trim();
+  if ((DOCUMENT_REVIEW_STATUSES as string[]).includes(s)) {
+    return s as DocumentReviewStatus;
+  }
+  const lower = s.toLowerCase();
+  if (lower === 'draft') return 'Draft';
+  if (lower === 'under review' || lower === 'under-review' || lower === 'review') {
+    return 'Under Review';
+  }
+  if (lower === 'approved') return 'Approved';
+  if (lower === 'rejected') return 'Rejected';
+  return 'Draft';
+}
+
+function migrateComment(c: DocumentComment): DocumentComment {
+  return {
+    id: c.id,
+    parentId: c.parentId ?? null,
+    authorId: c.authorId || '',
+    authorName: c.authorName || 'User',
+    body: c.body || '',
+    createdAt: c.createdAt || new Date().toISOString()
+  };
+}
+
+function migrateReviewDocument(d: ReviewDocument): ReviewDocument {
+  return {
+    ...d,
+    title: d.title || 'Untitled document',
+    description: d.description || '',
+    status: normalizeDocStatus(d.status),
+    version: typeof d.version === 'number' && d.version > 0 ? d.version : 1,
+    fileName: d.fileName ?? null,
+    fileUrl: d.fileUrl ?? null,
+    pathname: d.pathname ?? null,
+    mime: d.mime ?? null,
+    size: d.size ?? null,
+    redlineFileName: d.redlineFileName ?? null,
+    redlineFileUrl: d.redlineFileUrl ?? null,
+    redlinePathname: d.redlinePathname ?? null,
+    redlineMime: d.redlineMime ?? null,
+    redlineSize: d.redlineSize ?? null,
+    comments: Array.isArray(d.comments) ? d.comments.map(migrateComment) : [],
+    createdAt: d.createdAt || new Date().toISOString(),
+    updatedAt: d.updatedAt || d.createdAt || new Date().toISOString(),
+    uploadedById: d.uploadedById ?? null,
+    uploadedByName: d.uploadedByName ?? null
+  };
+}
+
 function migrateProject(data: ProjectData): ProjectData {
   const tasks = cascadeTaskDependencies((data.tasks || []).map((t: Task) => normalizeTask(t)));
   const mediaAssets = (data.mediaAssets || []).map(migrateMediaAsset);
@@ -38,13 +98,15 @@ function migrateProject(data: ProjectData): ProjectData {
     assigneeId: a.assigneeId ?? null,
     assigneeName: a.assigneeName ?? null
   }));
+  const reviewDocuments = (data.reviewDocuments || []).map(migrateReviewDocument);
   return {
     ...data,
-    version: Math.max(data.version || 1, 2),
+    version: Math.max(data.version || 1, 3),
     tasks,
     mediaAssets,
     mediaEvents,
-    approvals
+    approvals,
+    reviewDocuments
   };
 }
 
