@@ -14,6 +14,10 @@ export type MediaAccessUrls = {
   fallback?: boolean;
 };
 
+/** Blob store folder prefixes used by this app (pathname form, no host). */
+const BLOB_PATH_PREFIX =
+  /^(media|blitz|uploads|documents)\//i;
+
 function needsSigning(url?: string | null): boolean {
   if (!url) return false;
   const v = url.trim();
@@ -25,7 +29,7 @@ function needsSigning(url?: string | null): boolean {
   }
   // Already our authenticated proxy
   if (v.startsWith('/api/media/stream') || v.startsWith('/api/media/file')) return false;
-  if (/^(media|blitz|uploads)\//i.test(v)) return true;
+  if (BLOB_PATH_PREFIX.test(v)) return true;
   if (v.includes('blob.vercel-storage.com') || v.includes('vercel-storage.com')) return true;
   return false;
 }
@@ -59,7 +63,7 @@ function buildSignQuery(url: string, filename?: string): string {
     } catch {
       params.set('url', v);
     }
-  } else if (/^(media|blitz|uploads)\//i.test(v) && !v.includes('://')) {
+  } else if (BLOB_PATH_PREFIX.test(v) && !v.includes('://')) {
     params.set('pathname', v);
   } else {
     params.set('url', v.split('?')[0]);
@@ -71,7 +75,7 @@ function streamUrls(source: string, filename?: string): MediaAccessUrls {
   const q = new URLSearchParams();
   if (source.includes('://') && !source.includes('/api/media/')) {
     q.set('url', source.split('?')[0]);
-  } else if (/^(media|blitz|uploads)\//i.test(source)) {
+  } else if (BLOB_PATH_PREFIX.test(source)) {
     q.set('pathname', source);
   } else if (source.startsWith('/api/media/')) {
     try {
@@ -178,14 +182,27 @@ export function useSignedMediaUrl(
         expiresAt?: number;
         fallback?: boolean;
         error?: string;
+        warning?: string;
       };
 
       if (!res.ok && !data.signedUrl) {
         if (res.status === 401) {
-          throw new Error('Please sign in to view media.');
+          throw new Error('Please sign in to view this file.');
         }
-        // Stream still works for logged-in users when signing fails
-        return streams;
+        if (res.status === 503) {
+          throw new Error(
+            data.error ||
+              'Vercel Blob is not configured. Add BLOB_READ_WRITE_TOKEN and redeploy.'
+          );
+        }
+        // Prefer stream fallback for logged-in users when signing fails hard
+        if (res.status === 400 || res.status >= 500) {
+          // Still try streams; surface message via warning path below if needed
+        }
+        return {
+          ...streams,
+          fallback: true
+        };
       }
 
       const streamPreview = data.previewStreamUrl || streams.previewUrl;

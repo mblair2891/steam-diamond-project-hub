@@ -1,8 +1,8 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import DocumentFileActions from '@/components/DocumentFileActions';
 import Modal from '@/components/Modal';
-import SignedMediaLink from '@/components/SignedMediaLink';
 import { useProject } from '@/components/ProjectProvider';
 import { useToast } from '@/components/ToastProvider';
 import { useRole } from '@/hooks/useRole';
@@ -364,9 +364,26 @@ export default function DocumentsPage() {
     success('Document deleted');
   }
 
-  function clearRedline(id: string) {
-    if (!canEdit) return;
-    if (!confirm('Remove the attached redline PDF?')) return;
+  function clearMainFileMeta(id: string) {
+    setData((d) => ({
+      ...d,
+      reviewDocuments: (d.reviewDocuments || []).map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              fileName: null,
+              fileUrl: null,
+              pathname: null,
+              mime: null,
+              size: null,
+              updatedAt: new Date().toISOString()
+            }
+          : x
+      )
+    }));
+  }
+
+  function clearRedlineMeta(id: string) {
     setData((d) => ({
       ...d,
       reviewDocuments: (d.reviewDocuments || []).map((x) =>
@@ -383,7 +400,6 @@ export default function DocumentsPage() {
           : x
       )
     }));
-    success('Redline removed');
   }
 
   function submitComment(e: React.FormEvent) {
@@ -660,14 +676,14 @@ export default function DocumentsPage() {
                         <div className="text-[11px] text-ink-dim">
                           {formatBytes(selected.size)} · v{selected.version}
                         </div>
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          <SignedMediaLink
-                            url={reviewDocumentFileRef(selected)}
-                            name={selected.fileName || undefined}
-                            className="btn-secondary btn-sm"
-                          >
-                            Open PDF
-                          </SignedMediaLink>
+                        <div className="flex flex-col gap-2 pt-1">
+                          <DocumentFileActions
+                            fileRef={reviewDocumentFileRef(selected)}
+                            name={selected.fileName}
+                            canEdit={canEdit}
+                            openLabel="Open PDF"
+                            onDeleted={() => clearMainFileMeta(selected.id)}
+                          />
                           {canEdit && (
                             <>
                               <input
@@ -683,7 +699,7 @@ export default function DocumentsPage() {
                               />
                               <button
                                 type="button"
-                                className="btn-ghost btn-sm"
+                                className="btn-ghost btn-sm self-start"
                                 disabled={uploading}
                                 onClick={() => mainFileRef.current?.click()}
                               >
@@ -736,14 +752,14 @@ export default function DocumentsPage() {
                         <div className="text-[11px] text-ink-dim">
                           {formatBytes(selected.redlineSize)}
                         </div>
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          <SignedMediaLink
-                            url={reviewDocumentRedlineRef(selected)}
-                            name={selected.redlineFileName || undefined}
-                            className="btn-secondary btn-sm"
-                          >
-                            Open redline
-                          </SignedMediaLink>
+                        <div className="flex flex-col gap-2 pt-1">
+                          <DocumentFileActions
+                            fileRef={reviewDocumentRedlineRef(selected)}
+                            name={selected.redlineFileName}
+                            canEdit={canEdit}
+                            openLabel="Open redline"
+                            onDeleted={() => clearRedlineMeta(selected.id)}
+                          />
                           {canEdit && (
                             <>
                               <input
@@ -759,19 +775,11 @@ export default function DocumentsPage() {
                               />
                               <button
                                 type="button"
-                                className="btn-ghost btn-sm"
+                                className="btn-ghost btn-sm self-start"
                                 disabled={uploading}
                                 onClick={() => redlineFileRef.current?.click()}
                               >
-                                Replace
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-danger"
-                                disabled={uploading}
-                                onClick={() => clearRedline(selected.id)}
-                              >
-                                Remove
+                                Replace redline
                               </button>
                             </>
                           )}

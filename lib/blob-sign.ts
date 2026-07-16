@@ -45,7 +45,8 @@ export function isVercelBlobRef(value: string): boolean {
   const v = value.trim();
   if (!v || v.startsWith('data:') || v.startsWith('blob:')) return false;
   if (v.startsWith('/api/media/')) return true;
-  if (/^(media|blitz|uploads)\//i.test(v)) return true;
+  // Pathnames under app folders (media library, blitz, uploads, document review)
+  if (/^(media|blitz|uploads|documents)\//i.test(v)) return true;
   return v.includes('blob.vercel-storage.com') || v.includes('vercel-storage.com');
 }
 
