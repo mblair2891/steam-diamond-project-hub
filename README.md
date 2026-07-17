@@ -45,6 +45,10 @@ BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
 TWILIO_PHONE_NUMBER=+1...
+
+# OpenAI Vision (optional — floor plan auto wall/door/window detection)
+OPENAI_API_KEY=sk-...
+# OPENAI_VISION_MODEL=gpt-4o
 ```
 
 | Variable | Required |
@@ -52,6 +56,7 @@ TWILIO_PHONE_NUMBER=+1...
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes |
 | `CLERK_SECRET_KEY` | Yes |
 | `BLOB_READ_WRITE_TOKEN` | For Media Library / Media Blitz uploads |
+| `OPENAI_API_KEY` | Floor Plan Builder OpenAI Vision auto-detect (server-only) |
 | `TWILIO_*` | For SMS when tasks / media / approvals need attention |
 
 Also accepts legacy `VITE_CLERK_PUBLISHABLE_KEY` as a fallback for the publishable key.
@@ -173,7 +178,7 @@ API: `POST /api/notify/sms` with `{ userIds, message, type, title }`.
 - **Media Blitz** — month calendar, post/video **drafts**, status workflow, file upload, CSV export  
 - **Media Library** — drag & drop to **Vercel Blob**, progress, previews, metadata & review  
 - **Document Review** — **cloud-synced** PDF leases/contracts (Vercel Blob `documents/store.json`), status workflow, version, redline attach, **threaded comments (all roles)**  
-- **Floor Plan Builder** — multi-user **personal versions** (cloud), **AI auto-detect** walls/doors/windows (xAI vision + local fallback), drawing tools, furniture library, copy, comments, PNG/PDF export  
+- **Floor Plan Builder** — multi-user **personal versions** (cloud), **OpenAI Vision** auto-detect walls/doors/windows (`OPENAI_API_KEY`, local CV fallback), drawing tools, furniture library, copy, comments, PNG/PDF export  
 - Approvals — decision log with assignee + SMS on review  
 - Filming — shoot days + shot list  
 - Profile — Clerk `UserProfile`  

@@ -7,8 +7,10 @@ export const maxDuration = 60;
 
 /**
  * POST /api/floorplans/detect
- * AI vision (xAI / SpaceXAI) → walls, doors, windows in normalized coords.
- * Body: { imageBase64, mimeType?, canvasWidth, canvasHeight }
+ * OpenAI Vision → walls, doors, windows (normalized 0–1 coordinates).
+ *
+ * Server-only: uses OPENAI_API_KEY (never exposed to the browser).
+ * Body: { imageBase64, mimeType?, canvasWidth?, canvasHeight? }
  */
 export async function POST(request: Request) {
   const { userId } = await auth();
@@ -16,11 +18,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
   }
 
-  const apiKey = process.env.XAI_API_KEY?.trim();
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
       {
-        error: 'XAI_API_KEY is not configured. Local detection will be used.',
+        error:
+          'OPENAI_API_KEY is not configured. Add it to server environment variables. Local CV will be used as fallback.',
         useLocal: true
       },
       { status: 503 }
@@ -44,42 +47,46 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'imageBase64 is required.' }, { status: 400 });
   }
 
-  // Guard payload size (~15MB base64 ~ 11MB binary)
-  if (imageBase64.length > 15 * 1024 * 1024) {
+  // ~15MB base64 ≈ 11MB binary — OpenAI limit is lower; keep conservative
+  if (imageBase64.length > 12 * 1024 * 1024) {
     return NextResponse.json(
       { error: 'Image too large for analysis. Try a smaller export.' },
       { status: 413 }
     );
   }
 
-  const mime = body.mimeType?.startsWith('image/') ? body.mimeType : 'image/jpeg';
+  const mime =
+    body.mimeType === 'image/png' || body.mimeType === 'image/jpeg' || body.mimeType === 'image/webp'
+      ? body.mimeType
+      : 'image/jpeg';
   const dataUrl = `data:${mime};base64,${imageBase64}`;
-  const model = process.env.XAI_VISION_MODEL?.trim() || 'grok-4.5';
+  const model = process.env.OPENAI_VISION_MODEL?.trim() || 'gpt-4o';
 
-  const prompt = `You are an architectural floor-plan analyzer. Look at this building floor plan image.
-Detect major structural walls, doors, and windows.
+  const prompt = `You are an expert architectural floor-plan analyzer.
+Analyze this building floor plan image and detect the major walls, doors, and windows.
 
-Return ONLY valid JSON (no markdown fences) with this exact shape:
+Return ONLY valid JSON (no markdown, no code fences, no commentary) with this exact shape:
 {
-  "walls": [ { "x1": 0-1, "y1": 0-1, "x2": 0-1, "y2": 0-1, "thickness": 0.005-0.03 } ],
-  "doors": [ { "x": 0-1, "y": 0-1, "width": 0.02-0.12, "height": 0.008-0.03, "rotation": 0 } ],
-  "windows": [ { "x": 0-1, "y": 0-1, "width": 0.02-0.15, "height": 0.008-0.03, "rotation": 0 } ]
+  "walls": [ { "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0, "thickness": 0.01 } ],
+  "doors": [ { "x": 0.0, "y": 0.0, "width": 0.05, "height": 0.015, "rotation": 0 } ],
+  "windows": [ { "x": 0.0, "y": 0.0, "width": 0.06, "height": 0.015, "rotation": 0 } ]
 }
 
-Coordinate system:
-- Origin (0,0) is the TOP-LEFT of the image
-- (1,1) is the BOTTOM-RIGHT
-- All x/y/width/height values MUST be normalized 0–1 relative to the full image
-- For walls, (x1,y1) and (x2,y2) are endpoints of the wall centerline
-- Prefer axis-aligned walls (horizontal/vertical) when the plan is orthographic
-- For doors/windows, (x,y) is the top-left of the opening rectangle; rotation in degrees
-- Include only clear, major elements (not furniture, text, or dimension lines)
-- thickness for walls is normalized stroke thickness (typical 0.008–0.02)
-- If unsure about an element, omit it
-- Return empty arrays if nothing clear is found`;
+Coordinate system (required):
+- Origin (0,0) = TOP-LEFT of the image
+- (1,1) = BOTTOM-RIGHT of the image
+- All coordinates and sizes are normalized floats between 0 and 1 inclusive
+- Wall: (x1,y1) and (x2,y2) are endpoints of the wall centerline
+- Prefer axis-aligned walls when the plan is orthographic
+- Door/window: (x,y) is the top-left of the opening rectangle; width/height in normalized units; rotation in degrees (0 = horizontal opening along X)
+- thickness for walls is a normalized stroke thickness (typical 0.006–0.02)
+- Detect only major structural elements — ignore furniture, text labels, dimensions, grid lines, and hatching when possible
+- Include exterior walls and major interior partitions
+- If an element is uncertain, omit it rather than guessing wildly
+- Use empty arrays [] when a category has no clear elements`;
 
   try {
-    const res = await fetch('https://api.x.ai/v1/responses', {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -87,18 +94,28 @@ Coordinate system:
       },
       body: JSON.stringify({
         model,
-        input: [
+        temperature: 0.1,
+        max_tokens: 4096,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You extract architectural geometry from floor plan images and respond with JSON only.'
+          },
           {
             role: 'user',
             content: [
               {
-                type: 'input_image',
-                image_url: dataUrl,
-                detail: 'high'
+                type: 'text',
+                text: prompt
               },
               {
-                type: 'input_text',
-                text: prompt
+                type: 'image_url',
+                image_url: {
+                  url: dataUrl,
+                  detail: 'high'
+                }
               }
             ]
           }
@@ -115,40 +132,48 @@ Coordinate system:
     }
 
     if (!res.ok) {
-      console.error('[api/floorplans/detect] xAI error', res.status, rawText.slice(0, 500));
+      const errMsg = extractOpenAiError(payload) || `OpenAI Vision error (${res.status})`;
+      console.error('[api/floorplans/detect] OpenAI error', res.status, rawText.slice(0, 600));
       return NextResponse.json(
         {
-          error: `Vision API error (${res.status}). Local detection will be used.`,
+          error: errMsg,
           useLocal: true,
-          detail: typeof payload === 'object' && payload && 'error' in payload
-            ? String((payload as { error?: unknown }).error)
-            : undefined
+          detail: errMsg
         },
-        { status: 502 }
+        { status: res.status === 401 || res.status === 403 ? res.status : 502 }
       );
     }
 
-    const text = extractResponseText(payload);
+    const text = extractChatContent(payload);
     const parsed = parseArchitectureJson(text);
     if (!parsed) {
-      console.warn('[api/floorplans/detect] could not parse JSON', text?.slice(0, 400));
+      console.warn('[api/floorplans/detect] parse fail', text?.slice(0, 400));
       return NextResponse.json(
         {
-          error: 'Could not parse AI response. Local detection will be used.',
+          error: 'Could not parse OpenAI Vision response as architecture JSON.',
           useLocal: true
         },
         { status: 422 }
       );
     }
 
+    const walls = Array.isArray(parsed.walls) ? parsed.walls : [];
+    const doors = Array.isArray(parsed.doors) ? parsed.doors : [];
+    const windows = Array.isArray(parsed.windows) ? parsed.windows : [];
+
     return NextResponse.json(
       {
         ok: true,
-        method: 'ai',
+        method: 'openai-vision',
         model,
-        walls: parsed.walls || [],
-        doors: parsed.doors || [],
-        windows: parsed.windows || []
+        walls,
+        doors,
+        windows,
+        counts: {
+          walls: walls.length,
+          doors: doors.length,
+          windows: windows.length
+        }
       },
       { headers: { 'Cache-Control': 'private, no-store' } }
     );
@@ -156,7 +181,7 @@ Coordinate system:
     console.error('[api/floorplans/detect]', err);
     return NextResponse.json(
       {
-        error: err instanceof Error ? err.message : 'Detection failed',
+        error: err instanceof Error ? err.message : 'OpenAI Vision detection failed',
         useLocal: true
       },
       { status: 500 }
@@ -164,38 +189,30 @@ Coordinate system:
   }
 }
 
-function extractResponseText(payload: unknown): string {
+function extractOpenAiError(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const err = (payload as { error?: { message?: string; code?: string } }).error;
+  if (err?.message) return err.message;
+  return null;
+}
+
+function extractChatContent(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return '';
-  const p = payload as Record<string, unknown>;
+  const p = payload as {
+    choices?: Array<{ message?: { content?: string | Array<{ type?: string; text?: string }> } }>;
+    output_text?: string;
+  };
 
   if (typeof p.output_text === 'string') return p.output_text;
 
-  // OpenAI-style responses API: output[].content[].text
-  if (Array.isArray(p.output)) {
-    const parts: string[] = [];
-    for (const item of p.output) {
-      if (!item || typeof item !== 'object') continue;
-      const content = (item as { content?: unknown }).content;
-      if (typeof content === 'string') parts.push(content);
-      if (Array.isArray(content)) {
-        for (const c of content) {
-          if (!c || typeof c !== 'object') continue;
-          const t = (c as { text?: string; type?: string }).text;
-          if (typeof t === 'string') parts.push(t);
-        }
-      }
-    }
-    if (parts.length) return parts.join('\n');
+  const content = p.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((c) => (typeof c === 'object' && c && 'text' in c ? String(c.text || '') : ''))
+      .join('\n');
   }
-
-  // chat completions fallback shape
-  const choices = p.choices;
-  if (Array.isArray(choices) && choices[0] && typeof choices[0] === 'object') {
-    const msg = (choices[0] as { message?: { content?: string } }).message;
-    if (msg?.content) return msg.content;
-  }
-
-  return typeof p.raw === 'string' ? p.raw : JSON.stringify(payload);
+  return '';
 }
 
 function parseArchitectureJson(text: string): {
@@ -205,11 +222,9 @@ function parseArchitectureJson(text: string): {
 } | null {
   if (!text) return null;
   let s = text.trim();
-  // Strip markdown fences if present
   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) s = fence[1].trim();
 
-  // Find outermost JSON object
   const start = s.indexOf('{');
   const end = s.lastIndexOf('}');
   if (start < 0 || end <= start) return null;

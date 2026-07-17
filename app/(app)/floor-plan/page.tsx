@@ -436,9 +436,8 @@ export default function FloorPlanPage() {
 
       const { canvasWidth, canvasHeight } = fitCanvasSize(prepared.width, prepared.height);
 
-      // 4) REQUIRED: computer-vision detection of walls / doors / windows
-      //    (optional AI enrichment when XAI_API_KEY is set)
-      setUploadPhase('Detecting walls, doors, and windows…');
+      // 4) OpenAI Vision (server) detects walls/doors/windows; CV is fallback
+      setUploadPhase('Sending drawing to OpenAI Vision…');
       const detected = await detectArchitecture(
         prepared.file,
         canvasWidth,
@@ -489,10 +488,20 @@ export default function FloorPlanPage() {
       setSideTab('tools');
       setSelectedId(null);
       setDrawingBanner(true);
+      const methodLabel =
+        detected.method === 'openai-vision'
+          ? 'OpenAI Vision'
+          : detected.method === 'openai+cv'
+            ? 'OpenAI + CV'
+            : 'Local CV (OpenAI fallback)';
       success(
-        `Auto-detected ${detected.walls.length} walls · ${detected.doors.length} doors · ${detected.windows.length} windows`,
-        `${detected.message || ''} Purple/cyan “Auto” elements are editable — fine-tune, then place furniture.`
+        `${methodLabel}: ${detected.walls.length} walls · ${detected.doors.length} doors · ${detected.windows.length} windows`,
+        `${detected.message || ''} Purple/cyan “Auto” elements are fully editable.`
       );
+      if (detected.openaiError && detected.method !== 'openai-vision') {
+        // Soft notice — detection still succeeded via fallback
+        console.warn('[floor-plan] OpenAI Vision fallback:', detected.openaiError);
+      }
     } catch (err) {
       toastError(
         'Upload failed',
@@ -856,8 +865,8 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
             {uploadPhase || 'Processing building drawing…'}
           </div>
           <p className="mt-1 text-[11px] text-amber-200/80">
-            Converting the plan, then running edge detection to auto-place walls, doors, and
-            windows as editable objects.
+            Converting the plan, then analyzing with OpenAI Vision to auto-place walls, doors, and
+            windows as editable objects. This can take a few seconds.
           </p>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-900">
             <div className="h-full w-2/3 animate-pulse rounded-full bg-amber-400" />
@@ -1108,9 +1117,9 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
                   ))}
                 </ul>
                 <p className="text-[11px] text-ink-dim">
-                  Upload a PDF or image. We convert it, run AI (or local) detection for walls,
-                  doors, and windows, then open an editable personal version. You only fine-tune
-                  and add furniture.
+                  Upload a PDF or image. We convert it and run <strong>OpenAI Vision</strong> to
+                  detect walls, doors, and windows (local CV fallback if the API is unavailable).
+                  Fine-tune the Auto elements, then add furniture.
                 </p>
                 <div className="flex flex-wrap gap-1.5 text-[10px]">
                   <span className="badge" style={{ borderColor: '#c084fc55', color: '#e9d5ff' }}>

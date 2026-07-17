@@ -1,8 +1,8 @@
 /**
  * Architectural detection orchestrator.
  *
- * Always runs computer-vision first (guaranteed useful walls).
- * Optionally merges AI vision results when XAI_API_KEY is configured.
+ * Primary: OpenAI Vision via server /api/floorplans/detect (OPENAI_API_KEY).
+ * Fallback: client-side computer vision when OpenAI is unavailable or fails.
  */
 
 import { uid } from '@/lib/dates';
@@ -23,8 +23,10 @@ export type DetectedArchitecture = {
   walls: FloorPlanWall[];
   doors: FloorPlanDoor[];
   windows: FloorPlanWindow[];
-  method: 'cv' | 'ai' | 'cv+ai';
+  method: 'openai-vision' | 'cv' | 'openai+cv';
   message?: string;
+  /** Human-readable error from OpenAI when falling back */
+  openaiError?: string;
 };
 
 /** Shrink image for vision API (max edge, JPEG). */
@@ -180,14 +182,22 @@ function toCanvasDrawings(
   return { walls, doors, windows };
 }
 
-async function detectWithAi(
+type OpenAiDetectResult =
+  | { ok: true; data: DetectedArchitecture }
+  | { ok: false; error: string; useLocal: boolean };
+
+async function detectWithOpenAiVision(
   file: File,
   canvasWidth: number,
   canvasHeight: number,
-  wallThickness: number
-): Promise<DetectedArchitecture | null> {
+  wallThickness: number,
+  onProgress?: (msg: string) => void
+): Promise<OpenAiDetectResult> {
   try {
-    const { base64, mimeType } = await imageFileToAnalysisBase64(file);
+    onProgress?.('Encoding drawing for OpenAI Vision…');
+    const { base64, mimeType } = await imageFileToAnalysisBase64(file, 1600);
+
+    onProgress?.('OpenAI Vision is analyzing walls, doors, and windows…');
     const res = await fetch('/api/floorplans/detect', {
       method: 'POST',
       credentials: 'same-origin',
@@ -204,77 +214,115 @@ async function detectWithAi(
       ok?: boolean;
       useLocal?: boolean;
       error?: string;
+      method?: string;
+      model?: string;
       walls?: RawDetection['walls'];
       doors?: RawDetection['doors'];
       windows?: RawDetection['windows'];
     };
 
-    if (!res.ok || data.useLocal) return null;
+    if (!res.ok || data.useLocal) {
+      return {
+        ok: false,
+        error: data.error || `OpenAI Vision unavailable (${res.status})`,
+        useLocal: true
+      };
+    }
 
     const mapped = toCanvasDrawings(data, canvasWidth, canvasHeight, wallThickness);
     if (!mapped.walls.length && !mapped.doors.length && !mapped.windows.length) {
-      return null;
+      return {
+        ok: false,
+        error: 'OpenAI Vision returned no walls, doors, or windows.',
+        useLocal: true
+      };
     }
+
     return {
-      ...mapped,
-      method: 'ai',
-      message: `AI detected ${mapped.walls.length} walls, ${mapped.doors.length} doors, ${mapped.windows.length} windows`
+      ok: true,
+      data: {
+        ...mapped,
+        method: 'openai-vision',
+        message: `OpenAI Vision (${data.model || 'gpt-4o'}) detected ${mapped.walls.length} walls, ${mapped.doors.length} doors, ${mapped.windows.length} windows`
+      }
     };
-  } catch {
-    return null;
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'OpenAI Vision request failed',
+      useLocal: true
+    };
   }
 }
 
-function mergeDetections(
-  primary: DetectedArchitecture,
-  secondary: DetectedArchitecture | null
+function outerFrame(
+  canvasWidth: number,
+  canvasHeight: number,
+  wallThickness: number
 ): DetectedArchitecture {
-  if (!secondary) return primary;
-
-  // Keep CV walls; add AI walls that don't heavily overlap existing
-  const walls = [...primary.walls];
-  for (const aw of secondary.walls) {
-    const midX = (aw.x1 + aw.x2) / 2;
-    const midY = (aw.y1 + aw.y2) / 2;
-    const overlaps = walls.some((cw) => {
-      const cmx = (cw.x1 + cw.x2) / 2;
-      const cmy = (cw.y1 + cw.y2) / 2;
-      return Math.hypot(cmx - midX, cmy - midY) < 40;
-    });
-    if (!overlaps) walls.push({ ...aw, id: uid('fpd') });
-  }
-
-  const doors = [...primary.doors];
-  for (const d of secondary.doors) {
-    if (!doors.some((x) => Math.hypot(x.x - d.x, x.y - d.y) < 35)) {
-      doors.push({ ...d, id: uid('fpd') });
-    }
-  }
-
-  const windows = [...primary.windows];
-  for (const w of secondary.windows) {
-    if (!windows.some((x) => Math.hypot(x.x - w.x, x.y - w.y) < 35)) {
-      windows.push({ ...w, id: uid('fpd') });
-    }
-  }
-
-  // Reindex z
-  let z = 1;
-  const reZ = <T extends { zIndex: number }>(arr: T[]) =>
-    arr.map((item) => ({ ...item, zIndex: z++ }));
-
+  const t = Math.max(8, wallThickness || 10);
+  const m = 40;
   return {
-    walls: reZ(walls.slice(0, 120)),
-    doors: reZ(doors.slice(0, 40)),
-    windows: reZ(windows.slice(0, 40)),
-    method: 'cv+ai',
-    message: `Detected ${walls.length} walls, ${doors.length} doors, ${windows.length} windows (CV + AI)`
+    walls: [
+      {
+        id: uid('fpd'),
+        kind: 'wall',
+        x1: m,
+        y1: m,
+        x2: canvasWidth - m,
+        y2: m,
+        thickness: t,
+        color: AUTO_WALL_COLOR,
+        zIndex: 1,
+        source: 'auto'
+      },
+      {
+        id: uid('fpd'),
+        kind: 'wall',
+        x1: canvasWidth - m,
+        y1: m,
+        x2: canvasWidth - m,
+        y2: canvasHeight - m,
+        thickness: t,
+        color: AUTO_WALL_COLOR,
+        zIndex: 2,
+        source: 'auto'
+      },
+      {
+        id: uid('fpd'),
+        kind: 'wall',
+        x1: canvasWidth - m,
+        y1: canvasHeight - m,
+        x2: m,
+        y2: canvasHeight - m,
+        thickness: t,
+        color: AUTO_WALL_COLOR,
+        zIndex: 3,
+        source: 'auto'
+      },
+      {
+        id: uid('fpd'),
+        kind: 'wall',
+        x1: m,
+        y1: canvasHeight - m,
+        x2: m,
+        y2: m,
+        thickness: t,
+        color: AUTO_WALL_COLOR,
+        zIndex: 4,
+        source: 'auto'
+      }
+    ],
+    doors: [],
+    windows: [],
+    method: 'cv',
+    message: 'Placed outer structure frame for editing'
   };
 }
 
 /**
- * Required entry point: always produces auto walls/doors/windows.
- * CV is mandatory; AI is optional enhancement.
+ * Primary entry: OpenAI Vision first, CV fallback on failure.
+ * Always returns placeable auto elements.
  */
 export async function detectArchitecture(
   file: File,
@@ -283,10 +331,8 @@ export async function detectArchitecture(
   wallThickness: number,
   onProgress?: (msg: string) => void
 ): Promise<DetectedArchitecture> {
-  onProgress?.('Running computer vision (edges → walls)…');
-
-  // 1) Always run CV — this is the guaranteed path
-  const cv = await detectArchitectureCv(
+  // 1) Primary: OpenAI Vision (server-side OPENAI_API_KEY)
+  const openai = await detectWithOpenAiVision(
     file,
     canvasWidth,
     canvasHeight,
@@ -294,89 +340,51 @@ export async function detectArchitecture(
     onProgress
   );
 
-  let result: DetectedArchitecture = {
-    walls: cv.walls,
-    doors: cv.doors,
-    windows: cv.windows,
-    method: 'cv',
-    message: cv.message
-  };
-
-  // 2) Optionally enrich with AI (non-blocking for empty API key)
-  onProgress?.('Checking AI vision enhancement…');
-  const ai = await detectWithAi(file, canvasWidth, canvasHeight, wallThickness);
-  if (ai) {
-    onProgress?.('Merging AI detections…');
-    result = mergeDetections(result, ai);
+  if (openai.ok) {
+    onProgress?.(
+      `Placing ${openai.data.walls.length} walls, ${openai.data.doors.length} doors, ${openai.data.windows.length} windows…`
+    );
+    return openai.data;
   }
 
-  const n = result.walls.length + result.doors.length + result.windows.length;
-  if (n === 0) {
-    // Should never happen (CV guarantees frame) — last-ditch outer frame
-    const t = Math.max(8, wallThickness || 10);
-    const m = 40;
-    result = {
-      walls: [
-        {
-          id: uid('fpd'),
-          kind: 'wall',
-          x1: m,
-          y1: m,
-          x2: canvasWidth - m,
-          y2: m,
-          thickness: t,
-          color: AUTO_WALL_COLOR,
-          zIndex: 1,
-          source: 'auto'
-        },
-        {
-          id: uid('fpd'),
-          kind: 'wall',
-          x1: canvasWidth - m,
-          y1: m,
-          x2: canvasWidth - m,
-          y2: canvasHeight - m,
-          thickness: t,
-          color: AUTO_WALL_COLOR,
-          zIndex: 2,
-          source: 'auto'
-        },
-        {
-          id: uid('fpd'),
-          kind: 'wall',
-          x1: canvasWidth - m,
-          y1: canvasHeight - m,
-          x2: m,
-          y2: canvasHeight - m,
-          thickness: t,
-          color: AUTO_WALL_COLOR,
-          zIndex: 3,
-          source: 'auto'
-        },
-        {
-          id: uid('fpd'),
-          kind: 'wall',
-          x1: m,
-          y1: canvasHeight - m,
-          x2: m,
-          y2: m,
-          thickness: t,
-          color: AUTO_WALL_COLOR,
-          zIndex: 4,
-          source: 'auto'
-        }
-      ],
-      doors: [],
-      windows: [],
-      method: 'cv',
-      message: 'Placed outer structure frame for editing'
-    };
-  }
-
+  // 2) Graceful fallback: local computer vision
   onProgress?.(
-    `Placing ${result.walls.length} walls, ${result.doors.length} doors, ${result.windows.length} windows…`
+    openai.error
+      ? `OpenAI unavailable (${openai.error}). Running local edge detection…`
+      : 'OpenAI unavailable — running local edge detection…'
   );
-  return result;
+
+  try {
+    const cv = await detectArchitectureCv(
+      file,
+      canvasWidth,
+      canvasHeight,
+      wallThickness,
+      onProgress
+    );
+    const n = cv.walls.length + cv.doors.length + cv.windows.length;
+    if (n > 0) {
+      onProgress?.(
+        `Placing ${cv.walls.length} walls, ${cv.doors.length} doors, ${cv.windows.length} windows…`
+      );
+      return {
+        walls: cv.walls,
+        doors: cv.doors,
+        windows: cv.windows,
+        method: 'cv',
+        message: `${cv.message} (OpenAI fallback: ${openai.error})`,
+        openaiError: openai.error
+      };
+    }
+  } catch (err) {
+    console.warn('[floorplan-detect] CV fallback failed', err);
+  }
+
+  const frame = outerFrame(canvasWidth, canvasHeight, wallThickness);
+  frame.openaiError = openai.error;
+  frame.message = `OpenAI Vision failed (${openai.error}). Placed structure frame for editing.`;
+  onProgress?.('Placing structure frame…');
+  return frame;
 }
 
 export function mergeAutoDrawings(
