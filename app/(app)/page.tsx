@@ -100,6 +100,9 @@ export default function DashboardPage() {
               <span className="badge badge-needs-review ml-0.5">{docsNeedReview}</span>
             )}
           </Link>
+          <Link href="/floor-plan" className="btn-secondary btn-sm">
+            Floor Plan
+          </Link>
           <Link href="/calendar" className="btn-secondary btn-sm">
             Media Blitz
           </Link>

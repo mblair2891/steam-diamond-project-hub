@@ -18,6 +18,7 @@ const NAV_BASE = [
   { href: '/calendar', label: 'Media Blitz' },
   { href: '/media', label: 'Media Library' },
   { href: '/documents', label: 'Document Review' },
+  { href: '/floor-plan', label: 'Floor Plan' },
   { href: '/approvals', label: 'Approvals' },
   { href: '/filming', label: 'Filming' },
   { href: '/profile', label: 'Profile' }

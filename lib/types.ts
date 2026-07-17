@@ -168,6 +168,53 @@ export interface ReviewDocument {
   uploadedByName?: string | null;
 }
 
+/** Comment on a floor plan layout (any signed-in role). */
+export interface FloorPlanComment {
+  id: string;
+  parentId: string | null;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+  /** Optional pin on canvas (world coords) */
+  pinX?: number | null;
+  pinY?: number | null;
+}
+
+/** Single furniture/equipment instance on a layout. */
+export interface FloorPlanPlacedItem {
+  id: string;
+  typeId: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Degrees */
+  rotation: number;
+  zIndex: number;
+}
+
+/** Named saved layout version (e.g. Initial Concept, Final Layout). */
+export interface FloorPlanLayout {
+  id: string;
+  name: string;
+  description: string;
+  /** Public path or blob URL for background image/PDF-rendered image */
+  backgroundUrl?: string | null;
+  backgroundPathname?: string | null;
+  backgroundName?: string | null;
+  canvasWidth: number;
+  canvasHeight: number;
+  gridSize: number;
+  snapToGrid: boolean;
+  items: FloorPlanPlacedItem[];
+  comments: FloorPlanComment[];
+  createdAt: string;
+  updatedAt: string;
+  updatedByName?: string | null;
+}
+
 export interface ProjectData {
   version: number;
   projectName: string;
@@ -184,6 +231,16 @@ export interface ProjectData {
   timelineNotes: TimelineNote[];
   /** PDF leases, contracts, etc. with review comments */
   reviewDocuments: ReviewDocument[];
+  /** Floor plan layout versions */
+  floorPlans: FloorPlanLayout[];
+  /** Last selected layout id */
+  activeFloorPlanId?: string | null;
+}
+
+export function floorPlanBackgroundRef(
+  layout: Pick<FloorPlanLayout, 'backgroundPathname' | 'backgroundUrl'>
+): string {
+  return layout.backgroundPathname || layout.backgroundUrl || '';
 }
 
 /** Documents in Draft or Under Review need attention. */

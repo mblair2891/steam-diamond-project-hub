@@ -10,7 +10,7 @@ export const maxDuration = 60;
 const MAX_BYTES = 100 * 1024 * 1024; // 100MB
 const MULTIPART_THRESHOLD = 4 * 1024 * 1024;
 
-const ALLOWED_FOLDERS = new Set(['media', 'blitz', 'uploads', 'documents']);
+const ALLOWED_FOLDERS = new Set(['media', 'blitz', 'uploads', 'documents', 'floorplans']);
 
 function safeName(name: string): string {
   const base = name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);

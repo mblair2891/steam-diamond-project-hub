@@ -1,4 +1,10 @@
 import type { ProjectData } from './types';
+import {
+  DEFAULT_CANVAS_H,
+  DEFAULT_CANVAS_W,
+  DEFAULT_FLOOR_PLAN_BG,
+  DEFAULT_GRID_SIZE
+} from './floorplan-catalog';
 import { cascadeTaskDependencies, normalizeTask } from './tasks';
 
 export function buildSampleData(): ProjectData {
@@ -167,7 +173,7 @@ export function buildSampleData(): ProjectData {
   );
 
   return {
-    version: 3,
+    version: 4,
     projectName: 'Steam Distillery × Diamond House BBQ',
     keyDates: [
       { id: 'kd_keys', label: 'Keys Received', date: '2026-08-01' },
@@ -490,6 +496,121 @@ export function buildSampleData(): ProjectData {
         uploadedById: null,
         uploadedByName: 'Permits'
       }
-    ]
+    ],
+    floorPlans: [
+      {
+        id: 'fp_initial',
+        name: 'Initial Concept',
+        description: 'First-pass seating and bar concept over the default plate.',
+        backgroundUrl: DEFAULT_FLOOR_PLAN_BG,
+        backgroundPathname: null,
+        backgroundName: 'default-floor-plan.svg',
+        canvasWidth: DEFAULT_CANVAS_W,
+        canvasHeight: DEFAULT_CANVAS_H,
+        gridSize: DEFAULT_GRID_SIZE,
+        snapToGrid: true,
+        items: [
+          {
+            id: 'fpi1',
+            typeId: 'table-4top',
+            label: 'T1',
+            x: 200,
+            y: 220,
+            width: 72,
+            height: 72,
+            rotation: 0,
+            zIndex: 1
+          },
+          {
+            id: 'fpi2',
+            typeId: 'table-4top',
+            label: 'T2',
+            x: 320,
+            y: 220,
+            width: 72,
+            height: 72,
+            rotation: 0,
+            zIndex: 2
+          },
+          {
+            id: 'fpi3',
+            typeId: 'table-6top',
+            label: 'T3',
+            x: 440,
+            y: 280,
+            width: 96,
+            height: 72,
+            rotation: 0,
+            zIndex: 3
+          },
+          {
+            id: 'fpi4',
+            typeId: 'bar-counter',
+            label: 'Bar',
+            x: 820,
+            y: 180,
+            width: 200,
+            height: 40,
+            rotation: 0,
+            zIndex: 4
+          },
+          {
+            id: 'fpi5',
+            typeId: 'host-stand',
+            label: 'Host',
+            x: 520,
+            y: 740,
+            width: 56,
+            height: 40,
+            rotation: 0,
+            zIndex: 5
+          },
+          {
+            id: 'fpi6',
+            typeId: 'hood',
+            label: 'Hood',
+            x: 850,
+            y: 500,
+            width: 140,
+            height: 70,
+            rotation: 0,
+            zIndex: 6
+          }
+        ],
+        comments: [
+          {
+            id: 'fpc1',
+            parentId: null,
+            authorId: 'sample',
+            authorName: 'Design',
+            body: 'Dining density looks good — confirm 36" aisles at the booths.',
+            createdAt: '2026-07-09T12:00:00.000Z',
+            pinX: null,
+            pinY: null
+          }
+        ],
+        createdAt: '2026-07-05T10:00:00.000Z',
+        updatedAt: '2026-07-09T12:00:00.000Z',
+        updatedByName: 'Design'
+      },
+      {
+        id: 'fp_final',
+        name: 'Final Layout',
+        description: 'Owner-approved layout draft (empty canvas ready for placement).',
+        backgroundUrl: DEFAULT_FLOOR_PLAN_BG,
+        backgroundPathname: null,
+        backgroundName: 'default-floor-plan.svg',
+        canvasWidth: DEFAULT_CANVAS_W,
+        canvasHeight: DEFAULT_CANVAS_H,
+        gridSize: DEFAULT_GRID_SIZE,
+        snapToGrid: true,
+        items: [],
+        comments: [],
+        createdAt: '2026-07-12T09:00:00.000Z',
+        updatedAt: '2026-07-12T09:00:00.000Z',
+        updatedByName: null
+      }
+    ],
+    activeFloorPlanId: 'fp_initial'
   };
 }

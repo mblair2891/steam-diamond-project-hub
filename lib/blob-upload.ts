@@ -29,7 +29,7 @@ export interface BlobUploadResult {
 
 export interface BlobUploadOptions {
   file: File;
-  /** Folder prefix: media | blitz | uploads | documents */
+  /** Folder prefix: media | blitz | uploads | documents | floorplans */
   folder?: string;
   /**
    * Progress 0–100.

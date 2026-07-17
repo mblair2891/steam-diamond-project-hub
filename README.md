@@ -173,6 +173,7 @@ API: `POST /api/notify/sms` with `{ userIds, message, type, title }`.
 - **Media Blitz** — month calendar, post/video **drafts**, status workflow, file upload, CSV export  
 - **Media Library** — drag & drop to **Vercel Blob**, progress, previews, metadata & review  
 - **Document Review** — PDF leases/contracts, status workflow, version, redline attach, **threaded comments (all roles)**  
+- **Floor Plan Builder** — zoomable plan canvas (Konva), furniture library, multi-layout versions, comments, PNG/PDF export  
 - Approvals — decision log with assignee + SMS on review  
 - Filming — shoot days + shot list  
 - Profile — Clerk `UserProfile`  

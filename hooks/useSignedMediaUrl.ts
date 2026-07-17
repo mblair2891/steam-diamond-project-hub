@@ -16,7 +16,7 @@ export type MediaAccessUrls = {
 
 /** Blob store folder prefixes used by this app (pathname form, no host). */
 const BLOB_PATH_PREFIX =
-  /^(media|blitz|uploads|documents)\//i;
+  /^(media|blitz|uploads|documents|floorplans)\//i;
 
 function needsSigning(url?: string | null): boolean {
   if (!url) return false;
