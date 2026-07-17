@@ -436,29 +436,28 @@ export default function FloorPlanPage() {
 
       const { canvasWidth, canvasHeight } = fitCanvasSize(prepared.width, prepared.height);
 
-      // 4) AI / local detection of walls, doors, windows
-      let drawings = layout.drawings || [];
-      let detectMsg = '';
-      try {
-        const detected = await detectArchitecture(
-          prepared.file,
-          canvasWidth,
-          canvasHeight,
-          layout.wallThickness || 10,
-          (msg) => setUploadPhase(msg)
+      // 4) REQUIRED: computer-vision detection of walls / doors / windows
+      //    (optional AI enrichment when XAI_API_KEY is set)
+      setUploadPhase('Detecting walls, doors, and windows…');
+      const detected = await detectArchitecture(
+        prepared.file,
+        canvasWidth,
+        canvasHeight,
+        layout.wallThickness || 10,
+        (msg) => setUploadPhase(msg)
+      );
+      const drawings = mergeAutoDrawings(layout.drawings || [], detected, true);
+      const autoCount =
+        detected.walls.length + detected.doors.length + detected.windows.length;
+      setUploadPhase(
+        `Placing ${detected.walls.length} walls, ${detected.doors.length} doors, ${detected.windows.length} windows…`
+      );
+
+      if (autoCount === 0) {
+        // detectArchitecture is designed to always return walls — hard fail if not
+        throw new Error(
+          'Automatic detection produced no elements. Try a clearer floor plan image (dark lines on light background).'
         );
-        drawings = mergeAutoDrawings(layout.drawings || [], detected, true);
-        detectMsg = detected.message || '';
-        const n =
-          detected.walls.length + detected.doors.length + detected.windows.length;
-        setUploadPhase(
-          n > 0
-            ? `Placed ${n} auto-detected elements…`
-            : 'No clear walls found — you can draw them manually…'
-        );
-      } catch (err) {
-        console.warn('[floor-plan] detection skipped', err);
-        detectMsg = 'Auto-detect skipped — use drawing tools to trace manually.';
       }
 
       const next: FloorPlanLayout = {
@@ -478,22 +477,21 @@ export default function FloorPlanPage() {
         updatedByName: displayName || layout.ownerName
       };
 
+      // Immediate local state so canvas shows auto objects before cloud save finishes
+      setLayouts((list) => upsertLocal(list, next));
+      setActiveId(next.id);
+
       setUploadPhase('Saving personal version…');
       persistLayout(next, true);
 
-      // 5) Jump into editing mode with clear feedback
+      // 5) Jump into editing mode
       setTool('select');
       setSideTab('tools');
+      setSelectedId(null);
       setDrawingBanner(true);
-      const autoCount = drawings.filter((d) => d.source === 'auto').length;
       success(
-        'Drawing loaded – you can now fine-tune walls and place furniture',
-        autoCount > 0
-          ? `${autoCount} auto-detected elements (purple/cyan, “Auto” label). Edit or delete any of them. ${detectMsg}`
-          : detectMsg ||
-              (prepared.sourceKind === 'pdf'
-                ? 'Background ready — use Wall/Door/Window tools to trace.'
-                : 'Background ready — use tools to trace and place furniture.')
+        `Auto-detected ${detected.walls.length} walls · ${detected.doors.length} doors · ${detected.windows.length} windows`,
+        `${detected.message || ''} Purple/cyan “Auto” elements are editable — fine-tune, then place furniture.`
       );
     } catch (err) {
       toastError(
@@ -526,25 +524,27 @@ export default function FloorPlanPage() {
     setUploadingBg(true);
     setUploadPhase('Loading drawing for analysis…');
     try {
-      // Prefer blob stream for private files
       const path = layout.backgroundPathname || layout.backgroundUrl || '';
       let fetchUrl = path;
-      if (path && !path.startsWith('/') && !path.startsWith('http')) {
+      if (path.startsWith('/floor-plans/')) {
+        fetchUrl = path;
+      } else if (path && !path.startsWith('http') && !path.startsWith('/')) {
         fetchUrl = `/api/media/stream?pathname=${encodeURIComponent(path)}&disposition=inline`;
-      } else if (path.includes('blob.vercel-storage.com') || path.startsWith('documents/') || path.startsWith('floorplans/') || path.startsWith('media/')) {
+      } else if (
+        path.includes('blob.vercel-storage.com') ||
+        /^(floorplans|media|documents|uploads)\//i.test(path)
+      ) {
         const q = path.includes('://')
           ? `url=${encodeURIComponent(path.split('?')[0])}`
           : `pathname=${encodeURIComponent(path)}`;
         fetchUrl = `/api/media/stream?${q}&disposition=inline`;
       }
       const res = await fetch(fetchUrl, { credentials: 'same-origin', cache: 'no-store' });
-      if (!res.ok) throw new Error('Could not load background for analysis.');
+      if (!res.ok) throw new Error(`Could not load background for analysis (${res.status}).`);
       const blob = await res.blob();
-      const file = new File(
-        [blob],
-        layout.backgroundName || 'drawing.png',
-        { type: blob.type || 'image/png' }
-      );
+      const file = new File([blob], layout.backgroundName || 'drawing.png', {
+        type: blob.type || 'image/png'
+      });
       const detected = await detectArchitecture(
         file,
         layout.canvasWidth,
@@ -553,13 +553,23 @@ export default function FloorPlanPage() {
         (msg) => setUploadPhase(msg)
       );
       const drawings = mergeAutoDrawings(layout.drawings || [], detected, true);
-      touch((p) => ({ ...p, drawings, drawingReady: true }));
+      if (!detected.walls.length) {
+        throw new Error('Detection returned no walls. Try a higher-contrast plan image.');
+      }
+      const next = {
+        ...layout,
+        drawings,
+        drawingReady: true,
+        updatedAt: new Date().toISOString(),
+        updatedByName: displayName || layout.ownerName
+      };
+      setLayouts((list) => upsertLocal(list, next));
+      persistLayout(next, true);
       setDrawingBanner(true);
       setTool('select');
       success(
-        'Auto-detection complete',
-        detected.message ||
-          `Placed ${detected.walls.length} walls, ${detected.doors.length} doors, ${detected.windows.length} windows`
+        `Auto-detected ${detected.walls.length} walls · ${detected.doors.length} doors · ${detected.windows.length} windows`,
+        detected.message || 'Purple/cyan “Auto” elements are ready to fine-tune.'
       );
     } catch (err) {
       toastError(
@@ -846,8 +856,8 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
             {uploadPhase || 'Processing building drawing…'}
           </div>
           <p className="mt-1 text-[11px] text-amber-200/80">
-            PDFs are converted to a high-resolution image so you can trace walls and place
-            furniture on the canvas.
+            Converting the plan, then running edge detection to auto-place walls, doors, and
+            windows as editable objects.
           </p>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-900">
             <div className="h-full w-2/3 animate-pulse rounded-full bg-amber-400" />
@@ -859,12 +869,12 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
         <div className="flex flex-col gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-emerald-200">
-              Drawing loaded – fine-tune auto walls, then place furniture
+              Walls, doors, and windows were auto-detected
             </div>
             <p className="mt-0.5 text-[11px] text-emerald-200/80">
-              Purple walls / cyan windows with an <strong>Auto</strong> label were detected for
-              you — edit or delete freely. Manual tools and the furniture library still work on
-              top.
+              Purple walls and cyan openings with an <strong>Auto</strong> label are
+              computer-vision results — select, move, resize, rotate, or delete them. Use manual
+              tools for fixes and the Library for furniture.
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-1.5">
