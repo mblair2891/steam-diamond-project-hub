@@ -5,7 +5,8 @@ import { useProject } from '@/components/ProjectProvider';
 import KeyDatesPanel from '@/components/KeyDatesPanel';
 import { useRole } from '@/hooks/useRole';
 import { daysFromToday, formatDate, formatDateShort } from '@/lib/dates';
-import { documentNeedsReview, type Task } from '@/lib/types';
+import { useDocumentsSummary } from '@/hooks/useDocumentsSummary';
+import type { Task } from '@/lib/types';
 
 function MyTaskRow({ t }: { t: Task }) {
   const d = daysFromToday(t.due);
@@ -54,7 +55,7 @@ export default function DashboardPage() {
   const pendingAppr = data.approvals.filter(
     (a) => a.status === 'pending' || a.status === 'review'
   ).length;
-  const docsNeedReview = (data.reviewDocuments || []).filter(documentNeedsReview).length;
+  const { needsReview: docsNeedReview } = useDocumentsSummary();
 
   const myTasks = data.tasks
     .filter((t) => t.assigneeId && user?.id && t.assigneeId === user.id)

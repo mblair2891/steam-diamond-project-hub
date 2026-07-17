@@ -8,7 +8,7 @@ import { useRole } from '@/hooks/useRole';
 import { useProject } from '@/components/ProjectProvider';
 import { downloadBlob } from '@/lib/dates';
 import { exportCalendarCSV, exportProjectJSON } from '@/lib/storage';
-import { documentNeedsReview } from '@/lib/types';
+import { useDocumentsSummary } from '@/hooks/useDocumentsSummary';
 
 const NAV_BASE = [
   { href: '/', label: 'Dashboard' },
@@ -28,10 +28,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { canEdit, canManageUsers, displayName, phone, role, roleLabel, isViewer } = useRole();
   const { data } = useProject();
+  const { needsReview: docsNeedReview } = useDocumentsSummary();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-
-  const docsNeedReview = (data.reviewDocuments || []).filter(documentNeedsReview).length;
 
   const NAV = canManageUsers
     ? [...NAV_BASE.slice(0, -1), { href: '/users', label: 'Users' }, NAV_BASE[NAV_BASE.length - 1]]

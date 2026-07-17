@@ -12,8 +12,11 @@ import { Stage, Layer, Image as KonvaImage, Line, Rect } from 'react-konva';
 import type Konva from 'konva';
 import { useSignedMediaUrl } from '@/hooks/useSignedMediaUrl';
 import { getCatalogItem } from '@/lib/floorplan-catalog';
-import type { FloorPlanLayout, FloorPlanPlacedItem } from '@/lib/types';
+import type { FloorPlanPlacedItem } from '@/lib/types';
 import PlacedItemNode from './PlacedItemNode';
+import type { FloorPlanCanvasProps, FloorPlanStageHandle } from './types';
+
+export type { FloorPlanCanvasProps, FloorPlanStageHandle };
 
 function useHtmlImage(src?: string | null) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -52,16 +55,6 @@ function useHtmlImage(src?: string | null) {
 function snap(value: number, grid: number, enabled: boolean) {
   if (!enabled || grid <= 0) return value;
   return Math.round(value / grid) * grid;
-}
-
-export interface FloorPlanCanvasProps {
-  layout: FloorPlanLayout;
-  canEdit: boolean;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  onItemsChange: (items: FloorPlanPlacedItem[]) => void;
-  onPlaceFromLibrary: (typeId: string, x: number, y: number) => void;
-  stageRef?: React.MutableRefObject<Konva.Stage | null>;
 }
 
 export default function FloorPlanCanvas({
@@ -135,7 +128,9 @@ export default function FloorPlanCanvas({
   const setStageNode = useCallback(
     (node: Konva.Stage | null) => {
       stageRef.current = node;
-      if (externalStageRef) externalStageRef.current = node;
+      if (externalStageRef) {
+        externalStageRef.current = node as unknown as FloorPlanStageHandle | null;
+      }
     },
     [externalStageRef]
   );

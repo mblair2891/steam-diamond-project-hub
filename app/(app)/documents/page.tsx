@@ -1,13 +1,19 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DocumentFileActions from '@/components/DocumentFileActions';
 import Modal from '@/components/Modal';
-import { useProject } from '@/components/ProjectProvider';
 import { useToast } from '@/components/ToastProvider';
 import { useRole } from '@/hooks/useRole';
 import { uploadToBlob } from '@/lib/blob-upload';
-import { uid } from '@/lib/dates';
+import {
+  createDocument,
+  deleteDocument as deleteDocumentApi,
+  DOCUMENTS_CHANGED,
+  fetchDocuments,
+  postDocumentComment,
+  updateDocument
+} from '@/lib/documents-client';
 import {
   DOCUMENT_REVIEW_STATUSES,
   documentNeedsReview,
@@ -79,7 +85,6 @@ function isPdfFile(file: File) {
   return file.type === 'application/pdf' || name.endsWith('.pdf');
 }
 
-/** Build parent → children tree for threaded display */
 function buildCommentTree(comments: DocumentComment[]) {
   const byParent = new Map<string | null, DocumentComment[]>();
   const sorted = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -139,12 +144,26 @@ function CommentThread({
   );
 }
 
+function upsertLocal(
+  list: ReviewDocument[],
+  doc: ReviewDocument
+): ReviewDocument[] {
+  const idx = list.findIndex((x) => x.id === doc.id);
+  if (idx < 0) return [doc, ...list];
+  const next = [...list];
+  next[idx] = doc;
+  return next;
+}
+
 export default function DocumentsPage() {
-  const { data, setData, addDocumentComment } = useProject();
   const { canEdit, user, displayName, isLoaded: roleLoaded } = useRole();
   const { success, error: toastError } = useToast();
 
-  const docs = data.reviewDocuments || [];
+  const [docs, setDocs] = useState<ReviewDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [search, setSearch] = useState('');
@@ -155,6 +174,7 @@ export default function DocumentsPage() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadLabel, setUploadLabel] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [commentBody, setCommentBody] = useState('');
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -162,6 +182,47 @@ export default function DocumentsPage() {
   const mainFileRef = useRef<HTMLInputElement>(null);
   const redlineFileRef = useRef<HTMLInputElement>(null);
   const newMainFileRef = useRef<HTMLInputElement>(null);
+
+  const loadLibrary = useCallback(async (opts?: { soft?: boolean }) => {
+    if (opts?.soft) setRefreshing(true);
+    else setLoading(true);
+    setListError(null);
+    try {
+      const result = await fetchDocuments();
+      if (result.error) {
+        setListError(result.error);
+        setDocs([]);
+      } else {
+        setDocs(result.documents);
+        setFetchedAt(result.updatedAt || new Date().toISOString());
+      }
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : 'Failed to load documents');
+      setDocs([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLibrary();
+  }, [loadLibrary]);
+
+  useEffect(() => {
+    const onChange = () => {
+      void loadLibrary({ soft: true });
+    };
+    window.addEventListener(DOCUMENTS_CHANGED, onChange);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadLibrary({ soft: true });
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener(DOCUMENTS_CHANGED, onChange);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [loadLibrary]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -197,40 +258,32 @@ export default function DocumentsPage() {
     setModal('edit');
   }
 
-  function saveMeta(e: React.FormEvent) {
+  async function saveMeta(e: React.FormEvent) {
     e.preventDefault();
-    if (!canEdit) return;
+    if (!canEdit || !form.id) return;
     const title = form.title.trim();
     if (!title) return;
 
-    const now = new Date().toISOString();
-    const isNew = modal === 'new' || !form.id;
-
-    const next: ReviewDocument = {
-      ...form,
-      id: form.id || uid('rd'),
-      title,
-      description: (form.description || '').trim(),
-      status: form.status || 'Draft',
-      version: form.version || 1,
-      comments: form.comments || [],
-      createdAt: form.createdAt || now,
-      updatedAt: now,
-      uploadedById: form.uploadedById || user?.id || null,
-      uploadedByName: form.uploadedByName || displayName || null
-    };
-
-    setData((d) => {
-      const list = [...(d.reviewDocuments || [])];
-      const idx = list.findIndex((x) => x.id === next.id);
-      if (idx >= 0) list[idx] = { ...list[idx], ...next, comments: list[idx].comments };
-      else list.push(next);
-      return { ...d, reviewDocuments: list };
-    });
-
-    setSelectedId(next.id);
-    setModal(null);
-    success(isNew ? 'Document created' : 'Document updated');
+    setSaving(true);
+    try {
+      const saved = await updateDocument(form.id, {
+        title,
+        description: (form.description || '').trim(),
+        status: form.status || 'Draft',
+        version: form.version || 1
+      });
+      setDocs((list) => upsertLocal(list, saved));
+      setSelectedId(saved.id);
+      setModal(null);
+      success('Document updated');
+    } catch (err) {
+      toastError(
+        'Save failed',
+        err instanceof Error ? err.message : 'Could not update document'
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function uploadPdf(
@@ -240,7 +293,7 @@ export default function DocumentsPage() {
   ): Promise<void> {
     if (!canEdit) return;
     if (!isPdfFile(file)) {
-      toastError('Please upload a PDF file.');
+      toastError('Invalid file', 'Please upload a PDF file.');
       return;
     }
 
@@ -255,45 +308,38 @@ export default function DocumentsPage() {
         onProgress: (pct) => setUploadProgress(pct)
       });
 
-      const now = new Date().toISOString();
-      setData((d) => {
-        const list = [...(d.reviewDocuments || [])];
-        const idx = list.findIndex((x) => x.id === docId);
-        if (idx < 0) return d;
-        const prev = list[idx];
-        let next: ReviewDocument;
-        if (kind === 'main') {
-          const bumpVersion = Boolean(prev.fileUrl || prev.pathname);
-          next = {
-            ...prev,
-            fileName: result.name || file.name,
-            fileUrl: result.url,
-            pathname: result.pathname,
-            mime: result.contentType || 'application/pdf',
-            size: result.size,
-            version: bumpVersion ? (prev.version || 1) + 1 : prev.version || 1,
-            updatedAt: now,
-            uploadedById: user?.id || prev.uploadedById || null,
-            uploadedByName: displayName || prev.uploadedByName || null
-          };
-        } else {
-          next = {
-            ...prev,
-            redlineFileName: result.name || file.name,
-            redlineFileUrl: result.url,
-            redlinePathname: result.pathname,
-            redlineMime: result.contentType || 'application/pdf',
-            redlineSize: result.size,
-            updatedAt: now
-          };
-        }
-        list[idx] = next;
-        return { ...d, reviewDocuments: list };
-      });
+      const prev = docs.find((d) => d.id === docId);
+      let patch: Partial<ReviewDocument>;
+      if (kind === 'main') {
+        const bumpVersion = Boolean(prev?.fileUrl || prev?.pathname);
+        patch = {
+          fileName: result.name || file.name,
+          fileUrl: result.url,
+          pathname: result.pathname,
+          mime: result.contentType || 'application/pdf',
+          size: result.size,
+          version: bumpVersion ? (prev?.version || 1) + 1 : prev?.version || 1,
+          uploadedById: user?.id || prev?.uploadedById || null,
+          uploadedByName: displayName || prev?.uploadedByName || null
+        };
+      } else {
+        patch = {
+          redlineFileName: result.name || file.name,
+          redlineFileUrl: result.url,
+          redlinePathname: result.pathname,
+          redlineMime: result.contentType || 'application/pdf',
+          redlineSize: result.size
+        };
+      }
 
-      success(kind === 'main' ? 'PDF uploaded' : 'Redline attached');
+      const saved = await updateDocument(docId, patch);
+      setDocs((list) => upsertLocal(list, saved));
+      success(kind === 'main' ? 'PDF uploaded' : 'Redline attached', 'Synced for all devices');
     } catch (err) {
-      toastError(err instanceof Error ? err.message : 'Upload failed');
+      toastError(
+        'Upload failed',
+        err instanceof Error ? err.message : 'Could not upload PDF'
+      );
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -309,114 +355,128 @@ export default function DocumentsPage() {
 
     const fileInput = newMainFileRef.current;
     const file = fileInput?.files?.[0] || null;
-    const now = new Date().toISOString();
-    const id = uid('rd');
 
-    let next: ReviewDocument = {
-      ...emptyDoc(),
-      id,
-      title,
-      description: (form.description || '').trim(),
-      status: form.status || 'Draft',
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-      uploadedById: user?.id || null,
-      uploadedByName: displayName || null
-    };
+    setSaving(true);
+    try {
+      const created = await createDocument({
+        title,
+        description: (form.description || '').trim(),
+        status: form.status || 'Draft',
+        version: 1,
+        uploadedById: user?.id || null,
+        uploadedByName: displayName || null
+      });
+      setDocs((list) => upsertLocal(list, created));
+      setSelectedId(created.id);
+      setModal(null);
 
-    setData((d) => ({
-      ...d,
-      reviewDocuments: [...(d.reviewDocuments || []), next]
-    }));
-    setSelectedId(id);
-    setModal(null);
-
-    if (file) {
-      await uploadPdf(file, 'main', id);
-    } else {
-      success('Document created — upload a PDF when ready');
+      if (file) {
+        setSaving(false);
+        await uploadPdf(file, 'main', created.id);
+      } else {
+        success('Document created', 'Visible on all devices — upload a PDF when ready');
+      }
+    } catch (err) {
+      toastError(
+        'Create failed',
+        err instanceof Error ? err.message : 'Could not create document'
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
-  function updateStatus(id: string, status: DocumentReviewStatus) {
+  async function updateStatus(id: string, status: DocumentReviewStatus) {
     if (!canEdit) return;
-    setData((d) => ({
-      ...d,
-      reviewDocuments: (d.reviewDocuments || []).map((x) =>
-        x.id === id ? { ...x, status, updatedAt: new Date().toISOString() } : x
-      )
-    }));
-  }
-
-  function deleteDoc(id: string) {
-    if (!canEdit) return;
-    if (!confirm('Delete this document and its comments?')) return;
-    setData((d) => ({
-      ...d,
-      reviewDocuments: (d.reviewDocuments || []).filter((x) => x.id !== id)
-    }));
-    if (selectedId === id) {
-      setSelectedId(null);
-      setCommentBody('');
-      setReplyTo(null);
+    try {
+      const saved = await updateDocument(id, { status });
+      setDocs((list) => upsertLocal(list, saved));
+    } catch (err) {
+      toastError(
+        'Status update failed',
+        err instanceof Error ? err.message : 'Could not update status'
+      );
     }
-    success('Document deleted');
   }
 
-  function clearMainFileMeta(id: string) {
-    setData((d) => ({
-      ...d,
-      reviewDocuments: (d.reviewDocuments || []).map((x) =>
-        x.id === id
-          ? {
-              ...x,
-              fileName: null,
-              fileUrl: null,
-              pathname: null,
-              mime: null,
-              size: null,
-              updatedAt: new Date().toISOString()
-            }
-          : x
-      )
-    }));
+  async function deleteDoc(id: string) {
+    if (!canEdit) return;
+    if (!confirm('Delete this document and its comments from shared storage?')) return;
+    try {
+      await deleteDocumentApi(id);
+      setDocs((list) => list.filter((x) => x.id !== id));
+      if (selectedId === id) {
+        setSelectedId(null);
+        setCommentBody('');
+        setReplyTo(null);
+      }
+      success('Document deleted', 'Removed for all devices');
+    } catch (err) {
+      toastError(
+        'Delete failed',
+        err instanceof Error ? err.message : 'Could not delete document'
+      );
+    }
   }
 
-  function clearRedlineMeta(id: string) {
-    setData((d) => ({
-      ...d,
-      reviewDocuments: (d.reviewDocuments || []).map((x) =>
-        x.id === id
-          ? {
-              ...x,
-              redlineFileName: null,
-              redlineFileUrl: null,
-              redlinePathname: null,
-              redlineMime: null,
-              redlineSize: null,
-              updatedAt: new Date().toISOString()
-            }
-          : x
-      )
-    }));
+  async function clearMainFileMeta(id: string) {
+    try {
+      const saved = await updateDocument(id, {
+        fileName: null,
+        fileUrl: null,
+        pathname: null,
+        mime: null,
+        size: null
+      });
+      setDocs((list) => upsertLocal(list, saved));
+    } catch (err) {
+      toastError(
+        'Update failed',
+        err instanceof Error ? err.message : 'Could not clear file'
+      );
+    }
   }
 
-  function submitComment(e: React.FormEvent) {
+  async function clearRedlineMeta(id: string) {
+    try {
+      const saved = await updateDocument(id, {
+        redlineFileName: null,
+        redlineFileUrl: null,
+        redlinePathname: null,
+        redlineMime: null,
+        redlineSize: null
+      });
+      setDocs((list) => upsertLocal(list, saved));
+    } catch (err) {
+      toastError(
+        'Update failed',
+        err instanceof Error ? err.message : 'Could not clear redline'
+      );
+    }
+  }
+
+  async function submitComment(e: React.FormEvent) {
     e.preventDefault();
     if (!selected || !user?.id) return;
     const body = commentBody.trim();
     if (!body) return;
 
-    addDocumentComment(selected.id, {
-      parentId: replyTo,
-      authorId: user.id,
-      authorName: displayName,
-      body
-    });
-    setCommentBody('');
-    setReplyTo(null);
-    success('Comment posted');
+    try {
+      const { document: saved } = await postDocumentComment(selected.id, {
+        body,
+        parentId: replyTo,
+        authorName: displayName
+      });
+      setDocs((list) => upsertLocal(list, saved));
+      setCommentBody('');
+      setReplyTo(null);
+      success('Comment posted');
+    } catch (err) {
+      toastError(
+        'Comment failed',
+        err instanceof Error ? err.message : 'Could not post comment'
+      );
+    }
   }
 
   const replyParent = replyTo
@@ -429,31 +489,55 @@ export default function DocumentsPage() {
         <div>
           <h2 className="section-title">Document Review</h2>
           <p className="ml-3 mt-1 text-sm text-ink-muted">
-            Leases, contracts, and PDFs · threaded comments for every role
+            Cloud-synced leases &amp; contracts · threaded comments for every role
           </p>
         </div>
-        {canEdit && (
-          <button type="button" className="btn-primary btn-sm" onClick={openNew}>
-            + Upload document
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            disabled={loading || refreshing}
+            onClick={() => void loadLibrary({ soft: true })}
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
-        )}
+          {canEdit && (
+            <button type="button" className="btn-primary btn-sm" onClick={openNew}>
+              + Upload document
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Summary strip */}
+      {listError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <strong>Could not load documents.</strong> {listError}
+        </div>
+      )}
+
+      {!listError && fetchedAt && !loading && (
+        <p className="text-[11px] text-ink-dim">
+          Shared library · last sync {formatDateTime(fetchedAt)}
+          {refreshing ? ' · updating…' : ''}
+        </p>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="metric-card">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-dim">
             Total
           </div>
-          <div className="mt-1 text-2xl font-bold">{docs.length}</div>
+          <div className="mt-1 text-2xl font-bold">{loading ? '—' : docs.length}</div>
         </div>
         <div className="metric-card">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-dim">
             Needs review
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className="text-2xl font-bold text-amber-300">{needsReviewCount}</span>
-            {needsReviewCount > 0 && (
+            <span className="text-2xl font-bold text-amber-300">
+              {loading ? '—' : needsReviewCount}
+            </span>
+            {!loading && needsReviewCount > 0 && (
               <span className="badge badge-needs-review">Attention</span>
             )}
           </div>
@@ -463,7 +547,7 @@ export default function DocumentsPage() {
             Under review
           </div>
           <div className="mt-1 text-2xl font-bold">
-            {docs.filter((d) => d.status === 'Under Review').length}
+            {loading ? '—' : docs.filter((d) => d.status === 'Under Review').length}
           </div>
         </div>
         <div className="metric-card">
@@ -471,12 +555,11 @@ export default function DocumentsPage() {
             Approved
           </div>
           <div className="mt-1 text-2xl font-bold text-emerald-300">
-            {docs.filter((d) => d.status === 'Approved').length}
+            {loading ? '—' : docs.filter((d) => d.status === 'Approved').length}
           </div>
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col gap-3 panel p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-1.5">
           {(
@@ -527,15 +610,16 @@ export default function DocumentsPage() {
       )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        {/* List */}
         <div className="overflow-hidden panel">
           <div className="border-b border-surface-600 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-dim">
-            Documents ({filtered.length})
+            Documents ({loading ? '…' : filtered.length})
           </div>
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="empty-state">Loading shared documents…</div>
+          ) : filtered.length === 0 ? (
             <div className="empty-state">
               {docs.length === 0
-                ? 'No documents yet. Upload a lease, contract, or PDF to start review.'
+                ? 'No documents yet. Upload a lease, contract, or PDF — it will sync to every device.'
                 : 'No documents match this filter.'}
             </div>
           ) : (
@@ -589,7 +673,6 @@ export default function DocumentsPage() {
           )}
         </div>
 
-        {/* Detail */}
         <div className="panel overflow-hidden">
           {!selected ? (
             <div className="empty-state py-16">
@@ -623,7 +706,7 @@ export default function DocumentsPage() {
                       <button
                         type="button"
                         className="btn-danger"
-                        onClick={() => deleteDoc(selected.id)}
+                        onClick={() => void deleteDoc(selected.id)}
                       >
                         Delete
                       </button>
@@ -640,7 +723,6 @@ export default function DocumentsPage() {
                 </div>
               </div>
 
-              {/* Status + files */}
               <div className="space-y-4 border-b border-surface-600 px-4 py-4 sm:px-5">
                 {canEdit && (
                   <div>
@@ -650,7 +732,7 @@ export default function DocumentsPage() {
                       value={selected.status}
                       disabled={uploading}
                       onChange={(e) =>
-                        updateStatus(selected.id, e.target.value as DocumentReviewStatus)
+                        void updateStatus(selected.id, e.target.value as DocumentReviewStatus)
                       }
                     >
                       {DOCUMENT_REVIEW_STATUSES.map((s) => (
@@ -663,7 +745,6 @@ export default function DocumentsPage() {
                 )}
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {/* Main PDF */}
                   <div className="panel-inset p-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
                       Document PDF
@@ -682,7 +763,7 @@ export default function DocumentsPage() {
                             name={selected.fileName}
                             canEdit={canEdit}
                             openLabel="Open PDF"
-                            onDeleted={() => clearMainFileMeta(selected.id)}
+                            onDeleted={() => void clearMainFileMeta(selected.id)}
                           />
                           {canEdit && (
                             <>
@@ -739,7 +820,6 @@ export default function DocumentsPage() {
                     )}
                   </div>
 
-                  {/* Redline */}
                   <div className="panel-inset p-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
                       Review notes / redline
@@ -758,7 +838,7 @@ export default function DocumentsPage() {
                             name={selected.redlineFileName}
                             canEdit={canEdit}
                             openLabel="Open redline"
-                            onDeleted={() => clearRedlineMeta(selected.id)}
+                            onDeleted={() => void clearRedlineMeta(selected.id)}
                           />
                           {canEdit && (
                             <>
@@ -819,7 +899,6 @@ export default function DocumentsPage() {
                 </div>
               </div>
 
-              {/* Comments — all roles */}
               <div className="px-4 py-4 sm:px-5">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h4 className="text-sm font-bold">
@@ -829,9 +908,7 @@ export default function DocumentsPage() {
                     </span>
                   </h4>
                   {roleLoaded && (
-                    <span className="text-[11px] text-ink-dim">
-                      All roles can comment
-                    </span>
+                    <span className="text-[11px] text-ink-dim">All roles can comment</span>
                   )}
                 </div>
 
@@ -851,7 +928,7 @@ export default function DocumentsPage() {
                   </div>
                 )}
 
-                <form onSubmit={submitComment} className="space-y-2">
+                <form onSubmit={(e) => void submitComment(e)} className="space-y-2">
                   {replyParent && (
                     <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">
                       <span className="truncate">
@@ -868,11 +945,7 @@ export default function DocumentsPage() {
                   )}
                   <textarea
                     className="input min-h-[5rem]"
-                    placeholder={
-                      user
-                        ? 'Leave a review comment…'
-                        : 'Sign in to comment'
-                    }
+                    placeholder={user ? 'Leave a review comment…' : 'Sign in to comment'}
                     value={commentBody}
                     disabled={!user}
                     onChange={(e) => setCommentBody(e.target.value)}
@@ -891,7 +964,6 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      {/* Create / Edit modal */}
       <Modal
         open={!!modal}
         title={modal === 'new' ? 'New document' : 'Edit document'}
@@ -901,7 +973,7 @@ export default function DocumentsPage() {
         <form
           onSubmit={(e) => {
             if (modal === 'new') void handleNewWithFile(e);
-            else saveMeta(e);
+            else void saveMeta(e);
           }}
           className="space-y-3"
         >
@@ -969,12 +1041,20 @@ export default function DocumentsPage() {
                 className="input py-2 file:mr-3 file:rounded-md file:border-0 file:bg-surface-700 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-ink"
               />
               <p className="mt-1 text-[11px] text-ink-dim">
-                You can also attach the PDF after creating the document. Max 100MB.
+                Files go to Vercel Blob and metadata syncs to every signed-in device. Max 100MB.
               </p>
             </div>
           )}
-          <button type="submit" className="btn-primary w-full" disabled={uploading}>
-            {modal === 'new' ? 'Create document' : 'Save changes'}
+          <button
+            type="submit"
+            className="btn-primary w-full"
+            disabled={uploading || saving}
+          >
+            {saving
+              ? 'Saving…'
+              : modal === 'new'
+                ? 'Create document'
+                : 'Save changes'}
           </button>
         </form>
       </Modal>

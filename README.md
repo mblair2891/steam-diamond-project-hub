@@ -95,7 +95,7 @@ Allow `http://localhost:3000` and your production Vercel URL in Clerk.
 
 Admins invite users in-app at **/users** (phone creates a Clerk user for SMS login; optional email invitation).
 
-Project writes are blocked for view-only in the UI and in `ProjectProvider.setData`, except **document comments** via `addDocumentComment` (any signed-in role). User APIs require admin.
+Project writes are blocked for view-only in the UI and in `ProjectProvider.setData`. **Document Review** is cloud-synced via `/api/documents` (Blob store); comments work for any signed-in role via `POST /api/documents/[id]/comments`. User APIs require admin.
 
 ---
 
@@ -172,7 +172,7 @@ API: `POST /api/notify/sms` with `{ userIds, message, type, title }`.
 - Personal dashboard — **My assigned tasks** with days until due / overdue highlights  
 - **Media Blitz** — month calendar, post/video **drafts**, status workflow, file upload, CSV export  
 - **Media Library** — drag & drop to **Vercel Blob**, progress, previews, metadata & review  
-- **Document Review** — PDF leases/contracts, status workflow, version, redline attach, **threaded comments (all roles)**  
+- **Document Review** — **cloud-synced** PDF leases/contracts (Vercel Blob `documents/store.json`), status workflow, version, redline attach, **threaded comments (all roles)**  
 - **Floor Plan Builder** — zoomable plan canvas (Konva), furniture library, multi-layout versions, comments, PNG/PDF export  
 - Approvals — decision log with assignee + SMS on review  
 - Filming — shoot days + shot list  

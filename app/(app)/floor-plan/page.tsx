@@ -2,7 +2,6 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type Konva from 'konva';
 import Modal from '@/components/Modal';
 import { useProject } from '@/components/ProjectProvider';
 import { useToast } from '@/components/ToastProvider';
@@ -20,15 +19,20 @@ import {
 } from '@/lib/floorplan-catalog';
 import { uid } from '@/lib/dates';
 import type { FloorPlanLayout, FloorPlanPlacedItem } from '@/lib/types';
+import type { FloorPlanStageHandle } from '@/components/floorplan/types';
 
-const FloorPlanCanvas = dynamic(() => import('@/components/floorplan/FloorPlanCanvas'), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-ink-dim">
-      Loading canvas…
-    </div>
-  )
-});
+/** Double-guard: never load Konva on the server (ssr: false + canvas webpack alias). */
+const FloorPlanCanvas = dynamic(
+  () => import('@/components/floorplan/FloorPlanCanvasLazy'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-ink-dim">
+        Loading canvas…
+      </div>
+    )
+  }
+);
 
 function formatDateTime(iso?: string | null) {
   if (!iso) return '—';
@@ -99,7 +103,7 @@ export default function FloorPlanPage() {
   const [uploadingBg, setUploadingBg] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const stageRef = useRef<Konva.Stage | null>(null);
+  const stageRef = useRef<FloorPlanStageHandle | null>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
 
   const catalogFiltered = useMemo(() => {
