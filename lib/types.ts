@@ -273,11 +273,17 @@ export interface FloorPlanLayout {
   ownerId: string;
   /** Display name of the owner */
   ownerName: string;
-  /** Public path or blob URL for building drawing background */
+  /** Public path or blob URL for building drawing background (prefer raster image) */
   backgroundUrl?: string | null;
   backgroundPathname?: string | null;
   backgroundName?: string | null;
   backgroundMime?: string | null;
+  /** Optional original PDF kept for reference after raster conversion */
+  sourcePdfUrl?: string | null;
+  sourcePdfPathname?: string | null;
+  sourcePdfName?: string | null;
+  /** Set when a drawing is successfully loaded onto the canvas */
+  drawingReady?: boolean;
   canvasWidth: number;
   canvasHeight: number;
   gridSize: number;

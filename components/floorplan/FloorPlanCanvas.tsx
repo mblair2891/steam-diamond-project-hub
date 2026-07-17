@@ -30,26 +30,58 @@ export type { FloorPlanCanvasProps, FloorPlanStageHandle };
 function useHtmlImage(src?: string | null) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!src) {
       setImage(null);
       setError(null);
+      setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
     const img = new window.Image();
-    img.crossOrigin = 'anonymous';
+    // Same-origin stream URLs don't need CORS; cross-origin signed CDN does
+    const isSameOrigin =
+      src.startsWith('/') ||
+      (typeof window !== 'undefined' && src.startsWith(window.location.origin));
+    if (!isSameOrigin) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => {
       if (!cancelled) {
         setImage(img);
         setError(null);
+        setLoading(false);
       }
     };
     img.onerror = () => {
       if (!cancelled) {
+        // Retry with crossOrigin if first attempt failed (some CDNs)
+        if (!img.crossOrigin) {
+          const retry = new window.Image();
+          retry.crossOrigin = 'anonymous';
+          retry.onload = () => {
+            if (!cancelled) {
+              setImage(retry);
+              setError(null);
+              setLoading(false);
+            }
+          };
+          retry.onerror = () => {
+            if (!cancelled) {
+              setImage(null);
+              setError('Could not load floor plan background image.');
+              setLoading(false);
+            }
+          };
+          retry.src = src;
+          return;
+        }
         setImage(null);
         setError('Could not load floor plan background image.');
+        setLoading(false);
       }
     };
     img.src = src;
@@ -58,7 +90,7 @@ function useHtmlImage(src?: string | null) {
     };
   }, [src]);
 
-  return { image, error };
+  return { image, error, loading };
 }
 
 function snap(value: number, grid: number, enabled: boolean) {
@@ -91,16 +123,94 @@ export default function FloorPlanCanvas({
 
   const bgRef = layout.backgroundPathname || layout.backgroundUrl || '';
   const isPublic = bgRef.startsWith('/') && !bgRef.startsWith('/api/');
-  const isPdf =
+  const isPdfBg =
     (layout.backgroundMime || '').includes('pdf') ||
     /\.pdf$/i.test(layout.backgroundName || '') ||
-    /\.pdf$/i.test(bgRef);
-  const { url: signedBg, streamUrl, loading: bgLoading, error: bgSignError } = useSignedMediaUrl(
-    isPublic || !bgRef ? null : bgRef,
+    /\.pdf(\?|$)/i.test(bgRef);
+
+  // Prefer same-origin stream for private blobs (reliable cookies + canvas tint safety)
+  const { url: signedBg, streamUrl, loading: bgSigning, error: bgSignError } = useSignedMediaUrl(
+    isPublic || !bgRef || isPdfBg ? null : bgRef,
     { filename: layout.backgroundName || undefined }
   );
-  const bgSrc = isPublic ? bgRef : isPdf ? null : signedBg || streamUrl || null;
-  const { image: bgImage, error: bgLoadError } = useHtmlImage(bgSrc);
+  const bgSrc = isPublic
+    ? bgRef
+    : isPdfBg
+      ? null
+      : streamUrl || signedBg || null;
+  const { image: bgImage, error: bgLoadError, loading: bgImgLoading } = useHtmlImage(bgSrc);
+
+  // Legacy PDF-only layouts: rasterize client-side so the drawing appears on canvas
+  const [pdfFallbackImage, setPdfFallbackImage] = useState<HTMLImageElement | null>(null);
+  const [pdfFallbackError, setPdfFallbackError] = useState<string | null>(null);
+  const [pdfConverting, setPdfConverting] = useState(false);
+
+  const {
+    url: signedPdf,
+    streamUrl: streamPdf,
+    loading: pdfSigning
+  } = useSignedMediaUrl(isPdfBg && bgRef ? bgRef : null, {
+    filename: layout.backgroundName || undefined
+  });
+
+  useEffect(() => {
+    if (!isPdfBg) {
+      setPdfFallbackImage(null);
+      setPdfFallbackError(null);
+      setPdfConverting(false);
+      return;
+    }
+    const pdfUrl = streamPdf || signedPdf;
+    if (!pdfUrl) return;
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPdfConverting(true);
+    setPdfFallbackError(null);
+
+    (async () => {
+      try {
+        const { rasterizePdfUrlToPng } = await import('@/lib/floorplan-background');
+        const raster = await rasterizePdfUrlToPng(
+          pdfUrl,
+          layout.backgroundName || 'drawing.pdf'
+        );
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(raster.file);
+        const img = new window.Image();
+        img.onload = () => {
+          if (!cancelled) {
+            setPdfFallbackImage(img);
+            setPdfConverting(false);
+          }
+        };
+        img.onerror = () => {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          if (!cancelled) {
+            setPdfFallbackError('Could not display converted PDF page.');
+            setPdfConverting(false);
+          }
+        };
+        img.src = objectUrl;
+      } catch (err) {
+        if (!cancelled) {
+          setPdfFallbackError(
+            err instanceof Error ? err.message : 'PDF conversion failed'
+          );
+          setPdfConverting(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [isPdfBg, streamPdf, signedPdf, layout.backgroundName]);
+
+  const displayImage = bgImage || pdfFallbackImage;
+  const bgLoading = bgSigning || bgImgLoading || pdfSigning || pdfConverting;
+  const bgError = bgSignError || bgLoadError || pdfFallbackError;
 
   const items = useMemo(
     () => [...(layout.items || [])].sort((a, b) => a.zIndex - b.zIndex),
@@ -447,14 +557,18 @@ export default function FloorPlanCanvas({
           · Scroll zoom · Space/pan tool to pan
           {canEdit ? ' · Del removes selection' : ' · View only'}
         </span>
-        {(bgLoading || bgSignError || bgLoadError || isPdf) && (
+        {bgLoading && (
           <span className="ml-auto text-[11px] text-amber-300">
-            {bgLoading
-              ? 'Loading drawing…'
-              : isPdf
-                ? 'PDF stored — upload a PNG/JPG export for high-quality canvas background'
-                : bgSignError || bgLoadError || ''}
+            {pdfConverting ? 'Converting PDF to editable drawing…' : 'Loading drawing…'}
           </span>
+        )}
+        {!bgLoading && displayImage && (
+          <span className="ml-auto text-[11px] text-emerald-400">
+            Drawing loaded — zoom, pan, and edit on top
+          </span>
+        )}
+        {!bgLoading && bgError && (
+          <span className="ml-auto text-[11px] text-red-300">{bgError}</span>
         )}
       </div>
 
@@ -506,9 +620,9 @@ export default function FloorPlanCanvas({
               stroke="#2a3140"
               strokeWidth={2}
             />
-            {bgImage && (
+            {displayImage && (
               <KonvaImage
-                image={bgImage}
+                image={displayImage}
                 width={layout.canvasWidth}
                 height={layout.canvasHeight}
                 listening={false}

@@ -22,6 +22,12 @@ import {
   getCatalogItem,
   type FloorPlanCategory
 } from '@/lib/floorplan-catalog';
+import {
+  fitCanvasSize,
+  isImageFile,
+  isPdfFile,
+  prepareDrawingForCanvas
+} from '@/lib/floorplan-background';
 import { uid } from '@/lib/dates';
 import type {
   FloorPlanDrawing,
@@ -101,6 +107,8 @@ export default function FloorPlanPage() {
   const [modal, setModal] = useState<'new' | 'rename' | null>(null);
   const [layoutForm, setLayoutForm] = useState({ name: '', description: '' });
   const [uploadingBg, setUploadingBg] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState('');
+  const [drawingBanner, setDrawingBanner] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,6 +159,15 @@ export default function FloorPlanPage() {
   const isOwner = Boolean(layout && user?.id && layout.ownerId === user.id);
   const canEditLayout = Boolean(canEdit && layout && (isOwner || isAdmin));
 
+  // When opening a version that already has a drawing, surface the edit CTA
+  useEffect(() => {
+    if (layout?.drawingReady && canEditLayout) {
+      setDrawingBanner(true);
+    } else if (!layout?.drawingReady) {
+      setDrawingBanner(false);
+    }
+  }, [layout?.id, layout?.drawingReady, canEditLayout]);
+
   const owners = useMemo(() => {
     const map = new Map<string, string>();
     for (const l of layouts) {
@@ -190,6 +207,10 @@ export default function FloorPlanPage() {
             backgroundPathname: next.backgroundPathname,
             backgroundName: next.backgroundName,
             backgroundMime: next.backgroundMime,
+            sourcePdfUrl: next.sourcePdfUrl,
+            sourcePdfPathname: next.sourcePdfPathname,
+            sourcePdfName: next.sourcePdfName,
+            drawingReady: next.drawingReady,
             canvasWidth: next.canvasWidth,
             canvasHeight: next.canvasHeight,
             gridSize: next.gridSize,
@@ -350,43 +371,112 @@ export default function FloorPlanPage() {
 
   async function uploadBackground(file: File) {
     if (!canEditLayout || !layout) return;
-    const isImage =
-      file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|svg)$/i.test(file.name);
-    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-    if (!isImage && !isPdf) {
-      toastError('Unsupported file', 'Upload an image (PNG/JPG/WebP/SVG) or PDF.');
+    if (!isImageFile(file) && !isPdfFile(file)) {
+      toastError('Unsupported file', 'Upload a PDF or image (PNG, JPG, WebP, SVG).');
       return;
     }
+
     setUploadingBg(true);
+    setUploadPhase('Preparing drawing…');
+    setDrawingBanner(false);
+
     try {
-      const result = await uploadToBlob({ file, folder: 'floorplans' });
+      // 1) Convert PDF → PNG (or measure image) so Konva can display it
+      const prepared = await prepareDrawingForCanvas(file, (msg) => setUploadPhase(msg));
+
+      // 2) Optionally keep original PDF in Blob for reference
+      let sourcePdf: {
+        url: string | null;
+        pathname: string | null;
+        name: string | null;
+      } = {
+        url: layout.sourcePdfUrl ?? null,
+        pathname: layout.sourcePdfPathname ?? null,
+        name: layout.sourcePdfName ?? null
+      };
+
+      if (isPdfFile(file)) {
+        setUploadPhase('Uploading original PDF…');
+        try {
+          const pdfResult = await uploadToBlob({
+            file,
+            folder: 'floorplans',
+            onProgress: (pct) => setUploadPhase(`Uploading original PDF… ${pct}%`)
+          });
+          sourcePdf = {
+            url: pdfResult.url,
+            pathname: pdfResult.pathname,
+            name: pdfResult.name || file.name
+          };
+        } catch {
+          // Non-fatal — editable PNG is the source of truth for the canvas
+        }
+      }
+
+      // 3) Upload raster (or original image) as the editable background
+      setUploadPhase(
+        prepared.sourceKind === 'pdf'
+          ? 'Uploading editable drawing…'
+          : 'Uploading image…'
+      );
+      const result = await uploadToBlob({
+        file: prepared.file,
+        folder: 'floorplans',
+        onProgress: (pct) =>
+          setUploadPhase(
+            prepared.sourceKind === 'pdf'
+              ? `Uploading editable drawing… ${pct}%`
+              : `Uploading image… ${pct}%`
+          )
+      });
+
+      const { canvasWidth, canvasHeight } = fitCanvasSize(prepared.width, prepared.height);
+
       const next: FloorPlanLayout = {
         ...layout,
         backgroundUrl: result.url,
         backgroundPathname: result.pathname,
-        backgroundName: result.name || file.name,
-        backgroundMime: result.contentType || file.type || null,
+        backgroundName: result.name || prepared.file.name,
+        backgroundMime: result.contentType || prepared.file.type || 'image/png',
+        sourcePdfUrl: sourcePdf.url,
+        sourcePdfPathname: sourcePdf.pathname,
+        sourcePdfName: sourcePdf.name,
+        canvasWidth,
+        canvasHeight,
+        drawingReady: true,
         updatedAt: new Date().toISOString(),
         updatedByName: displayName || layout.ownerName
       };
-      // Prefer image canvas bg; PDF stored but flagged for export-as-image
-      if (isPdf) {
-        success(
-          'Building drawing uploaded',
-          'PDF saved. For drawing tools, also upload a PNG/JPG export of the plan.'
-        );
-      } else {
-        success('Building drawing uploaded');
-      }
+
+      setUploadPhase('Saving personal version…');
       persistLayout(next, true);
+
+      // 4) Jump into editing mode with clear feedback
+      setTool('select');
+      setSideTab('tools');
+      setDrawingBanner(true);
+      success(
+        'Drawing loaded – you can now trace walls and place furniture',
+        prepared.sourceKind === 'pdf'
+          ? 'First PDF page converted to an editable background on your personal version.'
+          : 'Background is on your personal version — zoom, pan, and edit.'
+      );
     } catch (err) {
       toastError(
         'Upload failed',
-        err instanceof Error ? err.message : 'Could not upload drawing'
+        err instanceof Error ? err.message : 'Could not prepare floor plan drawing'
       );
     } finally {
       setUploadingBg(false);
+      setUploadPhase('');
     }
+  }
+
+  function startEditing() {
+    setTool('select');
+    setSideTab('library');
+    setDrawingBanner(false);
+    success('Ready to edit', 'Use walls, doors, windows, or drag furniture onto the plan.');
   }
 
   function resetBackground() {
@@ -396,8 +486,13 @@ export default function FloorPlanPage() {
       backgroundUrl: DEFAULT_FLOOR_PLAN_BG,
       backgroundPathname: null,
       backgroundName: 'default-floor-plan.svg',
-      backgroundMime: 'image/svg+xml'
+      backgroundMime: 'image/svg+xml',
+      sourcePdfUrl: null,
+      sourcePdfPathname: null,
+      sourcePdfName: null,
+      drawingReady: false
     }));
+    setDrawingBanner(false);
     success('Restored default plate');
   }
 
@@ -582,6 +677,9 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
               ) : (
                 <span className="text-ink-muted">· Read-only (copy to edit)</span>
               )}
+              {layout.drawingReady && (
+                <span className="badge badge-approved">Drawing ready</span>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -602,7 +700,7 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
                   disabled={uploadingBg}
                   onClick={() => bgInputRef.current?.click()}
                 >
-                  {uploadingBg ? 'Uploading…' : 'Upload drawing'}
+                  {uploadingBg ? 'Working…' : 'Upload drawing'}
                 </button>
                 <input
                   ref={bgInputRef}
@@ -636,6 +734,47 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {uploadingBg && (
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3">
+          <div className="text-sm font-medium text-amber-200">
+            {uploadPhase || 'Processing building drawing…'}
+          </div>
+          <p className="mt-1 text-[11px] text-amber-200/80">
+            PDFs are converted to a high-resolution image so you can trace walls and place
+            furniture on the canvas.
+          </p>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-900">
+            <div className="h-full w-2/3 animate-pulse rounded-full bg-amber-400" />
+          </div>
+        </div>
+      )}
+
+      {drawingBanner && layout && !uploadingBg && canEditLayout && (
+        <div className="flex flex-col gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-emerald-200">
+              Drawing loaded – you can now trace walls and place furniture
+            </div>
+            <p className="mt-0.5 text-[11px] text-emerald-200/80">
+              Scroll to zoom · Space or Pan tool to move · Use Wall/Door/Window tools · Drag
+              furniture from the Library tab
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-1.5">
+            <button type="button" className="btn-primary btn-sm" onClick={startEditing}>
+              Start Editing
+            </button>
+            <button
+              type="button"
+              className="btn-ghost btn-sm"
+              onClick={() => setDrawingBanner(false)}
+            >
+              Dismiss
+            </button>
           </div>
         </div>
       )}
@@ -856,9 +995,19 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
                   ))}
                 </ul>
                 <p className="text-[11px] text-ink-dim">
-                  Upload a building drawing (PNG/JPG preferred) as the background. Each user
-                  saves only their own personal version to the cloud.
+                  Upload a building drawing (PDF or PNG/JPG). PDFs convert automatically to an
+                  editable canvas background. Everything saves only to your personal version.
                 </p>
+                {canEditLayout && (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm w-full"
+                    disabled={uploadingBg}
+                    onClick={() => bgInputRef.current?.click()}
+                  >
+                    {uploadingBg ? 'Loading drawing…' : 'Upload building drawing'}
+                  </button>
+                )}
               </div>
             )}
 
