@@ -195,6 +195,9 @@ export interface FloorPlanPlacedItem {
   zIndex: number;
 }
 
+/** How an architectural element was created */
+export type FloorPlanElementSource = 'manual' | 'auto';
+
 /** Structural drawing: wall segment */
 export interface FloorPlanWall {
   id: string;
@@ -206,6 +209,8 @@ export interface FloorPlanWall {
   thickness: number;
   color: string;
   zIndex: number;
+  /** auto = AI / heuristic detection */
+  source?: FloorPlanElementSource;
 }
 
 /** Structural drawing: door opening */
@@ -219,6 +224,7 @@ export interface FloorPlanDoor {
   rotation: number;
   color: string;
   zIndex: number;
+  source?: FloorPlanElementSource;
 }
 
 /** Structural drawing: window */
@@ -232,6 +238,7 @@ export interface FloorPlanWindow {
   rotation: number;
   color: string;
   zIndex: number;
+  source?: FloorPlanElementSource;
 }
 
 /** Text label for a room */
@@ -244,7 +251,13 @@ export interface FloorPlanRoomLabel {
   fontSize: number;
   color: string;
   zIndex: number;
+  source?: FloorPlanElementSource;
 }
+
+/** Distinct styling for AI-detected elements */
+export const AUTO_WALL_COLOR = '#c084fc';
+export const AUTO_DOOR_COLOR = '#a78bfa';
+export const AUTO_WINDOW_COLOR = '#22d3ee';
 
 export type FloorPlanDrawing =
   | FloorPlanWall

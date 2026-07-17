@@ -430,7 +430,8 @@ export default function FloorPlanCanvas({
         height: 12,
         rotation: 0,
         color: '#6cb6ff',
-        zIndex: maxZ + 1
+        zIndex: maxZ + 1,
+        source: 'manual'
       };
       onAddDrawing(door);
       onSelect(door.id);
@@ -446,7 +447,8 @@ export default function FloorPlanCanvas({
         height: 14,
         rotation: 0,
         color: '#3ecf8e',
-        zIndex: maxZ + 1
+        zIndex: maxZ + 1,
+        source: 'manual'
       };
       onAddDrawing(win);
       onSelect(win.id);
@@ -462,7 +464,8 @@ export default function FloorPlanCanvas({
         text: text.trim() || 'Room',
         fontSize: 16,
         color: '#eef1f6',
-        zIndex: maxZ + 1
+        zIndex: maxZ + 1,
+        source: 'manual'
       };
       onAddDrawing(label);
       onSelect(label.id);
@@ -500,7 +503,8 @@ export default function FloorPlanCanvas({
       y2,
       thickness: layout.wallThickness || 10,
       color: layout.wallColor || '#e8b84a',
-      zIndex: maxZ + 1
+      zIndex: maxZ + 1,
+      source: 'manual'
     };
     onAddDrawing(wall);
     onSelect(wall.id);

@@ -173,7 +173,7 @@ API: `POST /api/notify/sms` with `{ userIds, message, type, title }`.
 - **Media Blitz** — month calendar, post/video **drafts**, status workflow, file upload, CSV export  
 - **Media Library** — drag & drop to **Vercel Blob**, progress, previews, metadata & review  
 - **Document Review** — **cloud-synced** PDF leases/contracts (Vercel Blob `documents/store.json`), status workflow, version, redline attach, **threaded comments (all roles)**  
-- **Floor Plan Builder** — multi-user **personal versions** (cloud), drawing tools (wall/door/window/label), furniture library, copy others’ plans, comments, PNG/PDF export  
+- **Floor Plan Builder** — multi-user **personal versions** (cloud), **AI auto-detect** walls/doors/windows (xAI vision + local fallback), drawing tools, furniture library, copy, comments, PNG/PDF export  
 - Approvals — decision log with assignee + SMS on review  
 - Filming — shoot days + shot list  
 - Profile — Clerk `UserProfile`  

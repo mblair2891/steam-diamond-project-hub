@@ -28,6 +28,10 @@ import {
   isPdfFile,
   prepareDrawingForCanvas
 } from '@/lib/floorplan-background';
+import {
+  detectArchitecture,
+  mergeAutoDrawings
+} from '@/lib/floorplan-detect';
 import { uid } from '@/lib/dates';
 import type {
   FloorPlanDrawing,
@@ -432,6 +436,31 @@ export default function FloorPlanPage() {
 
       const { canvasWidth, canvasHeight } = fitCanvasSize(prepared.width, prepared.height);
 
+      // 4) AI / local detection of walls, doors, windows
+      let drawings = layout.drawings || [];
+      let detectMsg = '';
+      try {
+        const detected = await detectArchitecture(
+          prepared.file,
+          canvasWidth,
+          canvasHeight,
+          layout.wallThickness || 10,
+          (msg) => setUploadPhase(msg)
+        );
+        drawings = mergeAutoDrawings(layout.drawings || [], detected, true);
+        detectMsg = detected.message || '';
+        const n =
+          detected.walls.length + detected.doors.length + detected.windows.length;
+        setUploadPhase(
+          n > 0
+            ? `Placed ${n} auto-detected elements…`
+            : 'No clear walls found — you can draw them manually…'
+        );
+      } catch (err) {
+        console.warn('[floor-plan] detection skipped', err);
+        detectMsg = 'Auto-detect skipped — use drawing tools to trace manually.';
+      }
+
       const next: FloorPlanLayout = {
         ...layout,
         backgroundUrl: result.url,
@@ -443,6 +472,7 @@ export default function FloorPlanPage() {
         sourcePdfName: sourcePdf.name,
         canvasWidth,
         canvasHeight,
+        drawings,
         drawingReady: true,
         updatedAt: new Date().toISOString(),
         updatedByName: displayName || layout.ownerName
@@ -451,15 +481,19 @@ export default function FloorPlanPage() {
       setUploadPhase('Saving personal version…');
       persistLayout(next, true);
 
-      // 4) Jump into editing mode with clear feedback
+      // 5) Jump into editing mode with clear feedback
       setTool('select');
       setSideTab('tools');
       setDrawingBanner(true);
+      const autoCount = drawings.filter((d) => d.source === 'auto').length;
       success(
-        'Drawing loaded – you can now trace walls and place furniture',
-        prepared.sourceKind === 'pdf'
-          ? 'First PDF page converted to an editable background on your personal version.'
-          : 'Background is on your personal version — zoom, pan, and edit.'
+        'Drawing loaded – you can now fine-tune walls and place furniture',
+        autoCount > 0
+          ? `${autoCount} auto-detected elements (purple/cyan, “Auto” label). Edit or delete any of them. ${detectMsg}`
+          : detectMsg ||
+              (prepared.sourceKind === 'pdf'
+                ? 'Background ready — use Wall/Door/Window tools to trace.'
+                : 'Background ready — use tools to trace and place furniture.')
       );
     } catch (err) {
       toastError(
@@ -476,7 +510,66 @@ export default function FloorPlanPage() {
     setTool('select');
     setSideTab('library');
     setDrawingBanner(false);
-    success('Ready to edit', 'Use walls, doors, windows, or drag furniture onto the plan.');
+    success(
+      'Ready to edit',
+      'Purple/cyan “Auto” elements are AI-detected — move, resize, or delete them. Add furniture from the Library.'
+    );
+  }
+
+  async function rerunDetection() {
+    if (!layout || !canEditLayout) return;
+    const bgRef = layout.backgroundPathname || layout.backgroundUrl;
+    if (!bgRef || bgRef === DEFAULT_FLOOR_PLAN_BG) {
+      toastError('No drawing', 'Upload a building PDF or image first.');
+      return;
+    }
+    setUploadingBg(true);
+    setUploadPhase('Loading drawing for analysis…');
+    try {
+      // Prefer blob stream for private files
+      const path = layout.backgroundPathname || layout.backgroundUrl || '';
+      let fetchUrl = path;
+      if (path && !path.startsWith('/') && !path.startsWith('http')) {
+        fetchUrl = `/api/media/stream?pathname=${encodeURIComponent(path)}&disposition=inline`;
+      } else if (path.includes('blob.vercel-storage.com') || path.startsWith('documents/') || path.startsWith('floorplans/') || path.startsWith('media/')) {
+        const q = path.includes('://')
+          ? `url=${encodeURIComponent(path.split('?')[0])}`
+          : `pathname=${encodeURIComponent(path)}`;
+        fetchUrl = `/api/media/stream?${q}&disposition=inline`;
+      }
+      const res = await fetch(fetchUrl, { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) throw new Error('Could not load background for analysis.');
+      const blob = await res.blob();
+      const file = new File(
+        [blob],
+        layout.backgroundName || 'drawing.png',
+        { type: blob.type || 'image/png' }
+      );
+      const detected = await detectArchitecture(
+        file,
+        layout.canvasWidth,
+        layout.canvasHeight,
+        layout.wallThickness || 10,
+        (msg) => setUploadPhase(msg)
+      );
+      const drawings = mergeAutoDrawings(layout.drawings || [], detected, true);
+      touch((p) => ({ ...p, drawings, drawingReady: true }));
+      setDrawingBanner(true);
+      setTool('select');
+      success(
+        'Auto-detection complete',
+        detected.message ||
+          `Placed ${detected.walls.length} walls, ${detected.doors.length} doors, ${detected.windows.length} windows`
+      );
+    } catch (err) {
+      toastError(
+        'Detection failed',
+        err instanceof Error ? err.message : 'Could not analyze drawing'
+      );
+    } finally {
+      setUploadingBg(false);
+      setUploadPhase('');
+    }
   }
 
   function resetBackground() {
@@ -702,6 +795,15 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
                 >
                   {uploadingBg ? 'Working…' : 'Upload drawing'}
                 </button>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  disabled={uploadingBg || !layout.drawingReady}
+                  onClick={() => void rerunDetection()}
+                  title="Re-run AI / local wall-door-window detection"
+                >
+                  Auto-detect
+                </button>
                 <input
                   ref={bgInputRef}
                   type="file"
@@ -757,11 +859,12 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
         <div className="flex flex-col gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-emerald-200">
-              Drawing loaded – you can now trace walls and place furniture
+              Drawing loaded – fine-tune auto walls, then place furniture
             </div>
             <p className="mt-0.5 text-[11px] text-emerald-200/80">
-              Scroll to zoom · Space or Pan tool to move · Use Wall/Door/Window tools · Drag
-              furniture from the Library tab
+              Purple walls / cyan windows with an <strong>Auto</strong> label were detected for
+              you — edit or delete freely. Manual tools and the furniture library still work on
+              top.
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -995,18 +1098,40 @@ img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
                   ))}
                 </ul>
                 <p className="text-[11px] text-ink-dim">
-                  Upload a building drawing (PDF or PNG/JPG). PDFs convert automatically to an
-                  editable canvas background. Everything saves only to your personal version.
+                  Upload a PDF or image. We convert it, run AI (or local) detection for walls,
+                  doors, and windows, then open an editable personal version. You only fine-tune
+                  and add furniture.
                 </p>
+                <div className="flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="badge" style={{ borderColor: '#c084fc55', color: '#e9d5ff' }}>
+                    Auto wall
+                  </span>
+                  <span className="badge" style={{ borderColor: '#a78bfa55', color: '#ddd6fe' }}>
+                    Auto door
+                  </span>
+                  <span className="badge" style={{ borderColor: '#22d3ee55', color: '#a5f3fc' }}>
+                    Auto window
+                  </span>
+                </div>
                 {canEditLayout && (
-                  <button
-                    type="button"
-                    className="btn-primary btn-sm w-full"
-                    disabled={uploadingBg}
-                    onClick={() => bgInputRef.current?.click()}
-                  >
-                    {uploadingBg ? 'Loading drawing…' : 'Upload building drawing'}
-                  </button>
+                  <div className="flex flex-col gap-1.5">
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm w-full"
+                      disabled={uploadingBg}
+                      onClick={() => bgInputRef.current?.click()}
+                    >
+                      {uploadingBg ? 'Loading drawing…' : 'Upload building drawing'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm w-full"
+                      disabled={uploadingBg || !layout?.drawingReady}
+                      onClick={() => void rerunDetection()}
+                    >
+                      Re-run auto-detect
+                    </button>
+                  </div>
                 )}
               </div>
             )}

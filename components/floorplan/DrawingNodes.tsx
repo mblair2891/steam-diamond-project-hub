@@ -88,10 +88,22 @@ export function WallNode({
           width={len}
           height={wall.thickness}
           fill={wall.color}
-          stroke={selected ? '#fff' : wall.color}
-          strokeWidth={selected ? 1 : 0}
+          stroke={selected ? '#fff' : wall.source === 'auto' ? '#e9d5ff' : wall.color}
+          strokeWidth={selected ? 1.5 : wall.source === 'auto' ? 1 : 0}
           cornerRadius={1}
+          dash={wall.source === 'auto' ? [6, 4] : undefined}
         />
+        {wall.source === 'auto' && len > 40 && (
+          <Text
+            text="Auto"
+            x={Math.max(0, len / 2 - 12)}
+            y={-wall.thickness / 2 - 14}
+            fontSize={10}
+            fontStyle="bold"
+            fill="#e9d5ff"
+            listening={false}
+          />
+        )}
       </Group>
       {selected && draggable && (
         <Transformer
@@ -179,6 +191,17 @@ export function DoorNode({
           dash={[4, 3]}
         />
         <Circle x={0} y={h / 2} radius={3} fill={door.color} />
+        {door.source === 'auto' && (
+          <Text
+            text="Auto"
+            x={0}
+            y={-12}
+            fontSize={10}
+            fontStyle="bold"
+            fill="#ddd6fe"
+            listening={false}
+          />
+        )}
       </Group>
       {selected && draggable && (
         <Transformer
@@ -250,12 +273,26 @@ export function WindowNode({
         <Rect
           width={w}
           height={h}
-          fill="rgba(62,207,142,0.15)"
+          fill={
+            win.source === 'auto' ? 'rgba(34,211,238,0.18)' : 'rgba(62,207,142,0.15)'
+          }
           stroke={win.color}
           strokeWidth={2}
+          dash={win.source === 'auto' ? [5, 3] : undefined}
         />
         <Line points={[0, h / 2, w, h / 2]} stroke={win.color} strokeWidth={1.5} />
         <Line points={[w / 2, 0, w / 2, h]} stroke={win.color} strokeWidth={1} />
+        {win.source === 'auto' && (
+          <Text
+            text="Auto"
+            x={0}
+            y={-12}
+            fontSize={10}
+            fontStyle="bold"
+            fill="#a5f3fc"
+            listening={false}
+          />
+        )}
       </Group>
       {selected && draggable && (
         <Transformer

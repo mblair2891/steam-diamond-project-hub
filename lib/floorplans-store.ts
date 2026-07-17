@@ -61,7 +61,8 @@ function normalizeDrawing(d: FloorPlanDrawing): FloorPlanDrawing | null {
       y2: Number(d.y2) || 0,
       thickness: Math.max(2, Number(d.thickness) || 8),
       color: d.color || '#e8b84a',
-      zIndex: Number(d.zIndex) || 0
+      zIndex: Number(d.zIndex) || 0,
+      source: d.source === 'auto' ? 'auto' : 'manual'
     };
   }
   if (d.kind === 'door' || d.kind === 'window') {
@@ -74,7 +75,8 @@ function normalizeDrawing(d: FloorPlanDrawing): FloorPlanDrawing | null {
       height: Math.max(8, Number(d.height) || 16),
       rotation: Number(d.rotation) || 0,
       color: d.color || (d.kind === 'door' ? '#6cb6ff' : '#3ecf8e'),
-      zIndex: Number(d.zIndex) || 0
+      zIndex: Number(d.zIndex) || 0,
+      source: d.source === 'auto' ? 'auto' : 'manual'
     };
   }
   if (d.kind === 'room-label') {
@@ -86,7 +88,8 @@ function normalizeDrawing(d: FloorPlanDrawing): FloorPlanDrawing | null {
       text: d.text || 'Room',
       fontSize: Math.max(10, Number(d.fontSize) || 16),
       color: d.color || '#eef1f6',
-      zIndex: Number(d.zIndex) || 0
+      zIndex: Number(d.zIndex) || 0,
+      source: d.source === 'auto' ? 'auto' : 'manual'
     };
   }
   return null;
