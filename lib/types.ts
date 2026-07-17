@@ -195,24 +195,107 @@ export interface FloorPlanPlacedItem {
   zIndex: number;
 }
 
-/** Named saved layout version (e.g. Initial Concept, Final Layout). */
+/** Structural drawing: wall segment */
+export interface FloorPlanWall {
+  id: string;
+  kind: 'wall';
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  thickness: number;
+  color: string;
+  zIndex: number;
+}
+
+/** Structural drawing: door opening */
+export interface FloorPlanDoor {
+  id: string;
+  kind: 'door';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
+  zIndex: number;
+}
+
+/** Structural drawing: window */
+export interface FloorPlanWindow {
+  id: string;
+  kind: 'window';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
+  zIndex: number;
+}
+
+/** Text label for a room */
+export interface FloorPlanRoomLabel {
+  id: string;
+  kind: 'room-label';
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  color: string;
+  zIndex: number;
+}
+
+export type FloorPlanDrawing =
+  | FloorPlanWall
+  | FloorPlanDoor
+  | FloorPlanWindow
+  | FloorPlanRoomLabel;
+
+export type FloorPlanTool =
+  | 'select'
+  | 'wall'
+  | 'door'
+  | 'window'
+  | 'room-label'
+  | 'delete'
+  | 'pan';
+
+/**
+ * Personal floor plan version (cloud-synced).
+ * Each user owns their versions — editing never overwrites another user’s plan.
+ */
 export interface FloorPlanLayout {
   id: string;
   name: string;
   description: string;
-  /** Public path or blob URL for background image/PDF-rendered image */
+  /** Clerk user id of the owner */
+  ownerId: string;
+  /** Display name of the owner */
+  ownerName: string;
+  /** Public path or blob URL for building drawing background */
   backgroundUrl?: string | null;
   backgroundPathname?: string | null;
   backgroundName?: string | null;
+  backgroundMime?: string | null;
   canvasWidth: number;
   canvasHeight: number;
   gridSize: number;
   snapToGrid: boolean;
+  /** Default thickness for new walls (px) */
+  wallThickness: number;
+  /** Default color for new walls */
+  wallColor: string;
   items: FloorPlanPlacedItem[];
+  /** Walls, doors, windows, room labels */
+  drawings: FloorPlanDrawing[];
   comments: FloorPlanComment[];
   createdAt: string;
   updatedAt: string;
   updatedByName?: string | null;
+  /** If created by copying another version */
+  copiedFromId?: string | null;
+  copiedFromOwnerName?: string | null;
 }
 
 export interface ProjectData {

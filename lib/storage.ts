@@ -130,20 +130,28 @@ function migrateFloorPlanLayout(layout: FloorPlanLayout): FloorPlanLayout {
     ...layout,
     name: layout.name || 'Untitled layout',
     description: layout.description || '',
+    ownerId: layout.ownerId || '',
+    ownerName: layout.ownerName || layout.updatedByName || 'User',
     backgroundUrl: layout.backgroundUrl ?? DEFAULT_FLOOR_PLAN_BG,
     backgroundPathname: layout.backgroundPathname ?? null,
     backgroundName: layout.backgroundName ?? null,
+    backgroundMime: layout.backgroundMime ?? null,
     canvasWidth: layout.canvasWidth || DEFAULT_CANVAS_W,
     canvasHeight: layout.canvasHeight || DEFAULT_CANVAS_H,
     gridSize: layout.gridSize || DEFAULT_GRID_SIZE,
     snapToGrid: Boolean(layout.snapToGrid),
+    wallThickness: layout.wallThickness || 10,
+    wallColor: layout.wallColor || '#e8b84a',
     items: Array.isArray(layout.items) ? layout.items.map(migrateFloorPlanItem) : [],
+    drawings: Array.isArray(layout.drawings) ? layout.drawings : [],
     comments: Array.isArray(layout.comments)
       ? layout.comments.map(migrateFloorPlanComment)
       : [],
     createdAt: layout.createdAt || new Date().toISOString(),
     updatedAt: layout.updatedAt || layout.createdAt || new Date().toISOString(),
-    updatedByName: layout.updatedByName ?? null
+    updatedByName: layout.updatedByName ?? null,
+    copiedFromId: layout.copiedFromId ?? null,
+    copiedFromOwnerName: layout.copiedFromOwnerName ?? null
   };
 }
 
@@ -157,47 +165,9 @@ function migrateProject(data: ProjectData): ProjectData {
     assigneeName: a.assigneeName ?? null
   }));
   const reviewDocuments = (data.reviewDocuments || []).map(migrateReviewDocument);
-  let floorPlans = (data.floorPlans || []).map(migrateFloorPlanLayout);
-  // Seed default layouts when upgrading older project data
-  if (floorPlans.length === 0) {
-    const now = new Date().toISOString();
-    floorPlans = [
-      migrateFloorPlanLayout({
-        id: 'fp_initial',
-        name: 'Initial Concept',
-        description: 'First-pass seating and bar concept over the default plate.',
-        backgroundUrl: DEFAULT_FLOOR_PLAN_BG,
-        backgroundPathname: null,
-        backgroundName: 'default-floor-plan.svg',
-        canvasWidth: DEFAULT_CANVAS_W,
-        canvasHeight: DEFAULT_CANVAS_H,
-        gridSize: DEFAULT_GRID_SIZE,
-        snapToGrid: true,
-        items: [],
-        comments: [],
-        createdAt: now,
-        updatedAt: now,
-        updatedByName: null
-      }),
-      migrateFloorPlanLayout({
-        id: 'fp_final',
-        name: 'Final Layout',
-        description: 'Owner-approved layout draft.',
-        backgroundUrl: DEFAULT_FLOOR_PLAN_BG,
-        backgroundPathname: null,
-        backgroundName: 'default-floor-plan.svg',
-        canvasWidth: DEFAULT_CANVAS_W,
-        canvasHeight: DEFAULT_CANVAS_H,
-        gridSize: DEFAULT_GRID_SIZE,
-        snapToGrid: true,
-        items: [],
-        comments: [],
-        createdAt: now,
-        updatedAt: now,
-        updatedByName: null
-      })
-    ];
-  }
+  // Local floorPlans kept for export/compat; multi-user source of truth is
+  // Vercel Blob via /api/floorplans
+  const floorPlans = (data.floorPlans || []).map(migrateFloorPlanLayout);
   return {
     ...data,
     version: Math.max(data.version || 1, 4),
